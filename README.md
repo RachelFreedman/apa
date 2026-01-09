@@ -7,71 +7,57 @@ A democratic preference aggregation pipeline that:
 
 ## Quick Start
 
-### Option A: Use existing LoRe environment (recommended)
-
-The project can use the existing LoRe virtual environment which has torch and transformers already installed.
-
 ```bash
 cd /home/rachel/APA
 
-# Run any script with ./run.sh
-./run.sh tests/test_imports.py               # Verify imports
-./run.sh scripts/prepare_prism_embeddings.py # Generate embeddings
-./run.sh scripts/train_lore_prism.py         # Train LoRe model
-```
-
-### Option B: Create fresh virtual environment with uv
-
-```bash
-cd /home/rachel/APA
+# Install dependencies with uv
 ./setup_uv.sh
-# Then use: uv run python <script>
+
+# Verify installation
+uv run python tests/test_imports.py
+
+# Run tests
+uv run pytest tests/ -v
 ```
 
-### Option C: Create fresh virtual environment with pip
+## Pipeline Steps
+
+### 1. Prepare PRISM embeddings
 
 ```bash
-cd /home/rachel/APA
-./setup_env.sh
-source .venv/bin/activate
-```
+uv run python scripts/prepare_prism_embeddings.py
 
-### Pipeline Steps
-
-#### 1. Prepare PRISM embeddings
-
-```bash
-./run.sh scripts/prepare_prism_embeddings.py
 # Or for testing with fewer samples:
-./run.sh scripts/prepare_prism_embeddings.py --n_samples 1000
+uv run python scripts/prepare_prism_embeddings.py --n_samples 1000
 ```
 
-#### 2. Train LoRe model
+### 2. Train LoRe model
 
 ```bash
-./run.sh scripts/train_lore_prism.py
+uv run python scripts/train_lore_prism.py
+
 # Or for testing:
-./run.sh scripts/train_lore_prism.py --n_users 50 --epochs 5
+uv run python scripts/train_lore_prism.py --n_users 50 --epochs 5
 ```
 
-#### 3. Train historical user vectors (optional)
+### 3. Train historical user vectors (optional)
 
 ```bash
-./run.sh scripts/train_historical_users.py --century C013 --n_questions 500
-./run.sh scripts/train_historical_users.py --century C017 --n_questions 500
+uv run python scripts/train_historical_users.py --century C013 --n_questions 500
+uv run python scripts/train_historical_users.py --century C017 --n_questions 500
 ```
 
-#### 4. Run democratic inference
+### 4. Run democratic inference
 
 ```bash
 # Single query
-./run.sh scripts/run_democratic_inference.py --query "What is the meaning of life?"
+uv run python scripts/run_democratic_inference.py --query "What is the meaning of life?"
 
 # Interactive mode
-./run.sh scripts/run_democratic_inference.py --interactive
+uv run python scripts/run_democratic_inference.py --interactive
 
 # With all responses shown
-./run.sh scripts/run_democratic_inference.py --query "..." --show_all
+uv run python scripts/run_democratic_inference.py --query "..." --show_all
 ```
 
 ## Project Structure
@@ -104,6 +90,7 @@ APA/
 │   ├── train_lore_prism.py
 │   ├── train_historical_users.py
 │   └── run_democratic_inference.py
+├── tests/
 └── pyproject.toml
 ```
 
@@ -150,13 +137,12 @@ Default parameters in `apa/config.py`:
 | m_voters | 10 | Number of users to sample for voting |
 | lore.rank | 8 | Low-rank dimension |
 | lore.alpha | 10000 | Regularization coefficient |
-| inference_llm | Llama-3.1-8B-Instruct | Base LLM for generation |
 | hist_llama_size | 8B | HistLlama model size |
 | centuries | [13, 17, 19, 21] | Historical centuries to use |
 
 ## Storage
 
-Large files are stored on NAS with symlinks:
+Large files are stored on NAS:
 - **NAS base**: `/nas/ucb/rachel/APA/`
 - **Embeddings**: `/nas/ucb/rachel/APA/data/prism/embeddings.pkl`
 - **Checkpoints**: `/nas/ucb/rachel/APA/checkpoints/`

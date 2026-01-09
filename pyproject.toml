@@ -1,0 +1,31 @@
+[project]
+name = "apa"
+version = "0.1.0"
+description = "Aggregated Preference Alignment - Democratic preference aggregation with LoRe reward models"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "datasets>=2.0",
+    "accelerate>=0.25",
+    "peft>=0.10",
+    "bitsandbytes>=0.43",
+    "sentence-transformers>=2.2",
+    "pyyaml>=6.0",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "tqdm>=4.65",
+    "huggingface_hub>=0.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "ruff"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apa*"]

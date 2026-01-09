@@ -10,8 +10,16 @@ A democratic preference aggregation pipeline that:
 ```bash
 cd /home/rachel/APA
 
-# Install dependencies with uv
-./setup_uv.sh
+# Set up environment variables (add to your .bashrc for persistence)
+export UV_CACHE_DIR=/nas/ucb/rachel/APA/uv_cache
+export TMPDIR=/nas/ucb/rachel/APA/tmp
+
+# Create symlink so .venv lives on /nas (avoids disk quota issues)
+# Skip if symlink already exists
+[ -L .venv ] || (rm -rf .venv && ln -s /nas/ucb/rachel/APA/.venv .venv)
+
+# Install/sync dependencies with uv
+uv sync
 
 # Verify installation
 uv run python tests/test_imports.py
@@ -19,6 +27,8 @@ uv run python tests/test_imports.py
 # Run tests
 uv run pytest tests/ -v
 ```
+
+**Note:** The home directory has limited disk quota. The symlink approach stores the virtual environment on `/nas` where there is ample space.
 
 ## Pipeline Steps
 

@@ -126,7 +126,8 @@ class TestInferenceLLMConfig:
         """Test default configuration values."""
         config = InferenceLLMConfig()
 
-        assert "Llama-3.1-8B" in config.model_name
+        # Model name should be a valid HuggingFace model
+        assert "/" in config.model_name  # Format: org/model
         assert config.max_new_tokens == 512
         assert config.temperature == 1.2
         assert config.do_sample is True

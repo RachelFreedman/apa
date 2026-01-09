@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 import os
 import yaml
 
@@ -93,8 +93,8 @@ class HistLlamaConfig:
     size: str = "8B"  # "8B" or "70B"
     century: str = "C013"  # C013-C021
 
-    VALID_SIZES: tuple[str, ...] = ("8B", "70B")
-    VALID_CENTURIES: tuple[str, ...] = (
+    VALID_SIZES: ClassVar[tuple[str, ...]] = ("8B", "70B")
+    VALID_CENTURIES: ClassVar[tuple[str, ...]] = (
         "C013", "C014", "C015", "C016", "C017",
         "C018", "C019", "C020", "C021"
     )
@@ -213,7 +213,7 @@ class APAConfig:
             if dataclasses.is_dataclass(obj):
                 return {k: to_dict(v) for k, v in dataclasses.asdict(obj).items()
                         if not k.startswith('VALID_')}
-            elif isinstance(obj, list):
+            elif isinstance(obj, (list, tuple)):
                 return [to_dict(v) for v in obj]
             elif isinstance(obj, Path):
                 return str(obj)

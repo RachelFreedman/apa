@@ -50,11 +50,20 @@ uv run python scripts/train_lore_prism.py
 uv run python scripts/train_lore_prism.py --n_users 50 --epochs 5
 ```
 
-### 3. Train historical user vectors (optional)
+### 3. Historical user vectors (optional)
+
+#### 3a. Generate historical preferences
 
 ```bash
-uv run python scripts/train_historical_users.py --century C013 --n_questions 500
-uv run python scripts/train_historical_users.py --century C017 --n_questions 500
+uv run python scripts/generate_historical_preferences.py --century C013 --n_questions 500
+uv run python scripts/generate_historical_preferences.py --century C017 --n_questions 500
+```
+
+#### 3b. Train historical user vectors
+
+```bash
+uv run python scripts/train_historical_users.py --preferences_file /nas/ucb/rachel/APA/checkpoints/prism/historical/preferences_historical_C013.json
+uv run python scripts/train_historical_users.py --preferences_file /nas/ucb/rachel/APA/checkpoints/prism/historical/preferences_historical_C017.json
 ```
 
 ### 4. Run democratic inference
@@ -98,6 +107,7 @@ APA/
 ├── scripts/
 │   ├── prepare_prism_embeddings.py
 │   ├── train_lore_prism.py
+│   ├── generate_historical_preferences.py
 │   ├── train_historical_users.py
 │   └── run_democratic_inference.py
 ├── tests/
@@ -135,7 +145,8 @@ How to select training questions. Default: random.
 - `random_subset` (default)
 - `diverse_topics` (placeholder)
 - `controversial` (placeholder)
-- `stratified_by_type`
+- `high_agreement` (placeholder)
+- `temporal_relevant` (placeholder)
 
 ## Configuration
 

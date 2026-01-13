@@ -94,6 +94,7 @@ class VoterPool:
         self.V = basis_matrix
         self.voters: dict[str, UserVoter] = {}
         self.embedding_model = None
+        self.embedding_tokenizer = None
 
     def add_voter(
         self,
@@ -234,14 +235,19 @@ class VoterPool:
             embeddings: (n_responses, embed_dim) tensor
         """
         if self.embedding_model is None:
-            self.embedding_model = get_embedding_model()
+            self.embedding_model, self.embedding_tokenizer = get_embedding_model()
 
         if query:
             texts = [f"{query}\n\n{r}" for r in responses]
         else:
             texts = responses
 
-        embeddings = embed_texts(texts, model=self.embedding_model, show_progress=False)
+        embeddings = embed_texts(
+            texts,
+            model=self.embedding_model,
+            tokenizer=self.embedding_tokenizer,
+            show_progress=False,
+        )
         return torch.tensor(embeddings, dtype=torch.float32)
 
     @classmethod

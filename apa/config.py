@@ -140,9 +140,9 @@ class LoReConfig:
     epochs: int = 10
     batch_size: int = 32
 
-    # Embedding model
-    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
-    embedding_dim: int = 768  # Dimension of all-mpnet-base-v2
+    # Embedding model (Skywork-Reward for alignment with LoRe paper)
+    embedding_model: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
+    embedding_dim: int = 4096  # Llama 3.1 8B hidden dimension
 
 
 # =============================================================================

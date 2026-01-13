@@ -2,8 +2,8 @@
 """
 Prepare PRISM embeddings for LoRe training.
 
-This script loads the PRISM pairwise dataset and generates sentence embeddings
-for all prompts and responses using sentence-transformers.
+This script loads the PRISM pairwise dataset and generates embeddings
+using the Skywork-Reward model (following the LoRe paper methodology).
 
 Usage:
     python scripts/prepare_prism_embeddings.py
@@ -16,10 +16,12 @@ import argparse
 import sys
 from pathlib import Path
 
+import torch
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apa.config import configure_environment, DatasetConfig, LoReConfig, DATA_DIR
+from apa.config import configure_environment, DatasetConfig, LoReConfig
 from apa.data.prism_loader import load_prism_pairwise
 from apa.utils.embedding_utils import (
     get_embedding_model,
@@ -30,6 +32,8 @@ from apa.utils.embedding_utils import (
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
+    lore_config = LoReConfig()
+
     parser = argparse.ArgumentParser(
         description="Prepare PRISM embeddings for LoRe training",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -43,14 +47,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=32,
-        help="Batch size for embedding",
+        default=4,
+        help="Batch size for embedding (smaller for 8B model)",
     )
     parser.add_argument(
         "--model",
         type=str,
-        default="sentence-transformers/all-mpnet-base-v2",
-        help="Sentence transformer model to use",
+        default=lore_config.embedding_model,
+        help="Embedding model to use",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        help="Device to run model on",
     )
     parser.add_argument(
         "--output",
@@ -65,32 +75,39 @@ def main() -> None:
     """Main entry point."""
     args = parse_args()
 
-    # Configure environment
     configure_environment()
+
+    print(f"\n{'='*60}")
+    print("PRISM Embedding Generation")
+    print(f"{'='*60}")
+    print(f"  Model: {args.model}")
+    print(f"  Device: {args.device}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"{'='*60}\n")
 
     # Load PRISM data
     df = load_prism_pairwise(n_samples=args.n_samples)
 
-    # Get texts
     prompts = df['prompt'].tolist()
     responses_1 = df['response_1'].tolist()
     responses_2 = df['response_2'].tolist()
 
-    print(f"\nDataset statistics:")
+    print(f"Dataset statistics:")
     print(f"  Total pairs: {len(df)}")
     if 'user_id' in df.columns:
         print(f"  Unique users: {df['user_id'].nunique()}")
 
     # Load embedding model
-    model = get_embedding_model(args.model)
+    model, tokenizer = get_embedding_model(args.model, device=args.device)
 
     # Generate embeddings
-    print(f"\nGenerating embeddings with {args.model}...")
+    print(f"\nGenerating embeddings...")
     embeddings = embed_response_pairs(
         prompts=prompts,
         responses_1=responses_1,
         responses_2=responses_2,
         model=model,
+        tokenizer=tokenizer,
         batch_size=args.batch_size,
     )
 
@@ -98,8 +115,6 @@ def main() -> None:
     embeddings['model_name'] = args.model
     embeddings['n_samples'] = len(df)
 
-    # Include user_ids and labels for convenience
-    # Use user_id if available, otherwise fall back to interaction_id
     if 'user_id' in df.columns:
         embeddings['user_ids'] = df['user_id'].values
     elif 'interaction_id' in df.columns:
@@ -117,8 +132,12 @@ def main() -> None:
 
     save_embeddings(embeddings, output_path)
 
-    print(f"\nEmbeddings saved to: {output_path}")
+    print(f"\n{'='*60}")
+    print("Embedding generation complete!")
+    print(f"{'='*60}")
+    print(f"  Output: {output_path}")
     print(f"  Shape: {embeddings['response_1_embeddings'].shape}")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

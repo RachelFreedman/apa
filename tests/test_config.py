@@ -82,7 +82,7 @@ class TestLoReConfig:
         assert config.learning_rate == 1e-4
         assert config.epochs == 10
         assert config.batch_size == 32
-        assert config.embedding_dim == 768
+        assert config.embedding_dim == 4096
 
     def test_custom_values(self):
         """Test custom configuration values."""

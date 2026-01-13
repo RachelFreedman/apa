@@ -1,8 +1,8 @@
 """
 Embedding utilities for APA project.
 
-Provides functions for generating sentence embeddings using
-sentence-transformers models.
+Provides functions for generating embeddings using the Skywork-Reward model,
+following the LoRe paper methodology (last token hidden state extraction).
 """
 
 from __future__ import annotations
@@ -18,87 +18,143 @@ from tqdm import tqdm
 # Set HuggingFace cache to NAS if not already set
 if "HF_HOME" not in os.environ:
     os.environ["HF_HOME"] = "/nas/ucb/rachel/APA/hf_cache"
-if "SENTENCE_TRANSFORMERS_HOME" not in os.environ:
-    os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/nas/ucb/rachel/APA/hf_cache/sentence_transformers"
 
-# Global cache for embedding model
+# Global cache for embedding model and tokenizer
 _EMBEDDING_MODEL = None
+_EMBEDDING_TOKENIZER = None
 _EMBEDDING_MODEL_NAME = None
 
 
 def get_embedding_model(
-    model_name: str = "sentence-transformers/all-mpnet-base-v2",
+    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
     device: str | None = None,
-    cache_folder: str | None = None,
-) -> Any:
+    torch_dtype: torch.dtype = torch.bfloat16,
+) -> tuple[Any, Any]:
     """
-    Get or load the sentence embedding model.
+    Get or load the Skywork-Reward embedding model and tokenizer.
 
     Uses a global cache to avoid reloading the model multiple times.
 
     Args:
-        model_name: HuggingFace model name for sentence-transformers
+        model_name: HuggingFace model name
         device: Device to load model on (auto-detected if None)
-        cache_folder: Optional folder to cache model weights
+        torch_dtype: Torch dtype for model weights
 
     Returns:
-        SentenceTransformer model
+        Tuple of (model, tokenizer)
     """
-    global _EMBEDDING_MODEL, _EMBEDDING_MODEL_NAME
+    global _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER, _EMBEDDING_MODEL_NAME
 
     if _EMBEDDING_MODEL is not None and _EMBEDDING_MODEL_NAME == model_name:
-        return _EMBEDDING_MODEL
+        return _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER
 
-    from sentence_transformers import SentenceTransformer
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if cache_folder is None:
-        cache_folder = os.environ.get(
-            "SENTENCE_TRANSFORMERS_HOME",
-            "/nas/ucb/rachel/APA/hf_cache/sentence_transformers"
-        )
+    cache_dir = os.environ.get("HF_HOME", "/nas/ucb/rachel/APA/hf_cache")
 
     print(f"Loading embedding model: {model_name}")
-    print(f"Cache folder: {cache_folder}")
-    _EMBEDDING_MODEL = SentenceTransformer(model_name, device=device, cache_folder=cache_folder)
+    print(f"Device: {device}, dtype: {torch_dtype}")
+
+    _EMBEDDING_TOKENIZER = AutoTokenizer.from_pretrained(
+        model_name,
+        cache_dir=cache_dir,
+    )
+
+    _EMBEDDING_MODEL = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        torch_dtype=torch_dtype,
+        device_map=device,
+        cache_dir=cache_dir,
+        num_labels=1,
+    )
+    _EMBEDDING_MODEL.eval()
     _EMBEDDING_MODEL_NAME = model_name
 
-    return _EMBEDDING_MODEL
+    return _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER
+
+
+def _format_for_embedding(prompt: str, response: str, tokenizer: Any) -> str:
+    """
+    Format prompt and response as a chat conversation for embedding.
+
+    Uses the tokenizer's chat template to format properly.
+    """
+    messages = [
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": response},
+    ]
+
+    formatted = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=False,
+    )
+    return formatted
+
+
+def _extract_embedding(
+    model: Any,
+    tokenizer: Any,
+    text: str,
+    device: str = "cuda",
+) -> np.ndarray:
+    """
+    Extract embedding from the last token's hidden state.
+
+    Following LoRe paper: uses the last hidden state of the last token.
+    """
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=4096,
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(
+            **inputs,
+            output_hidden_states=True,
+        )
+        # Get last layer hidden state, last token
+        embedding = outputs.hidden_states[-1][0, -1, :]
+
+    return embedding.float().cpu().numpy()
 
 
 def embed_text(
     text: str,
     model: Any | None = None,
-    model_name: str = "sentence-transformers/all-mpnet-base-v2",
-    normalize: bool = True,
+    tokenizer: Any | None = None,
+    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
 ) -> np.ndarray:
     """
     Embed a single text string.
 
     Args:
-        text: Text to embed
+        text: Text to embed (should be formatted as chat if prompt+response)
         model: Pre-loaded model (optional)
+        tokenizer: Pre-loaded tokenizer (optional)
         model_name: Model name if model not provided
-        normalize: Whether to L2-normalize the embedding
 
     Returns:
-        Embedding vector as numpy array
+        Embedding vector as numpy array (4096-dim for Llama 3.1 8B)
     """
-    if model is None:
-        model = get_embedding_model(model_name)
+    if model is None or tokenizer is None:
+        model, tokenizer = get_embedding_model(model_name)
 
-    embedding = model.encode(text, normalize_embeddings=normalize)
-    return embedding
+    device = next(model.parameters()).device
+    return _extract_embedding(model, tokenizer, text, str(device))
 
 
 def embed_texts(
     texts: list[str],
     model: Any | None = None,
-    model_name: str = "sentence-transformers/all-mpnet-base-v2",
-    batch_size: int = 32,
-    normalize: bool = True,
+    tokenizer: Any | None = None,
+    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
+    batch_size: int = 4,
     show_progress: bool = True,
 ) -> np.ndarray:
     """
@@ -107,25 +163,36 @@ def embed_texts(
     Args:
         texts: List of texts to embed
         model: Pre-loaded model (optional)
+        tokenizer: Pre-loaded tokenizer (optional)
         model_name: Model name if model not provided
-        batch_size: Batch size for encoding
-        normalize: Whether to L2-normalize embeddings
+        batch_size: Batch size (smaller due to large model)
         show_progress: Whether to show progress bar
 
     Returns:
-        Embeddings as numpy array of shape (n_texts, embed_dim)
+        Embeddings as numpy array of shape (n_texts, 4096)
     """
-    if model is None:
-        model = get_embedding_model(model_name)
+    if model is None or tokenizer is None:
+        model, tokenizer = get_embedding_model(model_name)
 
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        normalize_embeddings=normalize,
-        show_progress_bar=show_progress,
-    )
+    device = next(model.parameters()).device
+    embeddings = []
 
-    return embeddings
+    iterator = range(0, len(texts), batch_size)
+    if show_progress:
+        iterator = tqdm(iterator, desc="Embedding texts")
+
+    for i in iterator:
+        batch_texts = texts[i:i + batch_size]
+
+        # Process one at a time within batch due to variable lengths
+        batch_embeddings = []
+        for text in batch_texts:
+            emb = _extract_embedding(model, tokenizer, text, str(device))
+            batch_embeddings.append(emb)
+
+        embeddings.extend(batch_embeddings)
+
+    return np.array(embeddings)
 
 
 def embed_response_pairs(
@@ -133,54 +200,64 @@ def embed_response_pairs(
     responses_1: list[str],
     responses_2: list[str],
     model: Any | None = None,
-    model_name: str = "sentence-transformers/all-mpnet-base-v2",
-    batch_size: int = 32,
+    tokenizer: Any | None = None,
+    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
+    batch_size: int = 4,
     show_progress: bool = True,
 ) -> dict[str, np.ndarray]:
     """
     Embed prompts and response pairs for preference learning.
 
-    Concatenates prompt with each response before embedding to capture
-    the context of the response.
+    Formats each prompt+response as a chat conversation before embedding.
 
     Args:
         prompts: List of prompt texts
         responses_1: List of first responses
         responses_2: List of second responses
         model: Pre-loaded model (optional)
+        tokenizer: Pre-loaded tokenizer (optional)
         model_name: Model name if model not provided
         batch_size: Batch size for encoding
         show_progress: Whether to show progress bar
 
     Returns:
         Dictionary with:
-            - 'prompt_embeddings': (n, d) prompt embeddings
-            - 'response_1_embeddings': (n, d) response 1 embeddings (with context)
-            - 'response_2_embeddings': (n, d) response 2 embeddings (with context)
+            - 'prompt_embeddings': (n, 4096) prompt-only embeddings
+            - 'response_1_embeddings': (n, 4096) prompt+response1 embeddings
+            - 'response_2_embeddings': (n, 4096) prompt+response2 embeddings
     """
-    if model is None:
-        model = get_embedding_model(model_name)
+    if model is None or tokenizer is None:
+        model, tokenizer = get_embedding_model(model_name)
 
     n = len(prompts)
     assert len(responses_1) == n and len(responses_2) == n
 
-    # Create contextualized response texts
-    ctx_responses_1 = [f"{p}\n\n{r}" for p, r in zip(prompts, responses_1)]
-    ctx_responses_2 = [f"{p}\n\n{r}" for p, r in zip(prompts, responses_2)]
+    # Format as chat conversations
+    formatted_1 = [
+        _format_for_embedding(p, r, tokenizer)
+        for p, r in zip(prompts, responses_1)
+    ]
+    formatted_2 = [
+        _format_for_embedding(p, r, tokenizer)
+        for p, r in zip(prompts, responses_2)
+    ]
 
     print("Embedding prompts...")
     prompt_embeddings = embed_texts(
-        prompts, model=model, batch_size=batch_size, show_progress=show_progress
+        prompts, model=model, tokenizer=tokenizer,
+        batch_size=batch_size, show_progress=show_progress
     )
 
     print("Embedding response 1s...")
     response_1_embeddings = embed_texts(
-        ctx_responses_1, model=model, batch_size=batch_size, show_progress=show_progress
+        formatted_1, model=model, tokenizer=tokenizer,
+        batch_size=batch_size, show_progress=show_progress
     )
 
     print("Embedding response 2s...")
     response_2_embeddings = embed_texts(
-        ctx_responses_2, model=model, batch_size=batch_size, show_progress=show_progress
+        formatted_2, model=model, tokenizer=tokenizer,
+        batch_size=batch_size, show_progress=show_progress
     )
 
     return {

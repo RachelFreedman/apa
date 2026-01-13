@@ -151,7 +151,7 @@ def main() -> None:
     )
 
     # Compute statistics
-    valid_count = sum(1 for p in preferences if p.get('final_preference') in [1, 2])
+    valid_count = sum(1 for p in preferences if p.get('final_preference') in ['1', '2'])
     consistencies = [p['consistency'] for p in preferences]
     avg_consistency = sum(consistencies) / len(consistencies) if consistencies else 0
 

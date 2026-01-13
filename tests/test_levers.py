@@ -24,7 +24,6 @@ from apa.levers.lever_sample import (
 from apa.levers.lever_questions import (
     lever_select_questions,
     random_subset,
-    stratified_by_type,
     STRATEGIES as QUESTION_STRATEGIES,
 )
 
@@ -212,31 +211,6 @@ class TestLeverQuestions:
 
         assert result1['question_id'].tolist() == result2['question_id'].tolist()
 
-    def test_stratified_by_type(self):
-        """Test stratified selection by conversation type."""
-        df = pd.DataFrame({
-            'question_id': range(12),
-            'prompt': [f'q{i}' for i in range(12)],
-            'conversation_type': ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'C', 'C', 'C', 'C'],
-        })
-
-        result = stratified_by_type(df, 6, {})
-
-        assert len(result) == 6
-        # Should have some from each type
-        types = set(result['conversation_type'].unique())
-        assert len(types) >= 2
-
-    def test_stratified_no_column(self):
-        """Test stratified falls back when column missing."""
-        df = pd.DataFrame({
-            'question_id': range(10),
-            'prompt': [f'q{i}' for i in range(10)],
-        })
-
-        result = stratified_by_type(df, 5, {})
-        assert len(result) == 5
-
     def test_lever_dispatch(self):
         """Test lever dispatches to correct strategy."""
         df = pd.DataFrame({
@@ -261,5 +235,5 @@ class TestLeverQuestions:
 
     def test_strategies_registered(self):
         """Test all expected strategies are registered."""
-        expected = {'random_subset', 'stratified_by_type', 'diverse_topics', 'controversial', 'high_agreement', 'temporal_relevant'}
+        expected = {'random_subset', 'diverse_topics', 'controversial', 'high_agreement', 'temporal_relevant'}
         assert expected <= set(QUESTION_STRATEGIES.keys())

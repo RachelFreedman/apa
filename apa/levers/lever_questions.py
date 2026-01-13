@@ -154,58 +154,6 @@ def controversial(
     return random_subset(all_questions, n_questions, config)
 
 
-@register_strategy("stratified_by_type")
-def stratified_by_type(
-    all_questions: pd.DataFrame,
-    n_questions: int,
-    config: dict,
-) -> pd.DataFrame:
-    """
-    Select questions with stratification by conversation type.
-
-    Ensures representation from different conversation types in PRISM.
-
-    Args:
-        all_questions: DataFrame with 'conversation_type' column
-        n_questions: Number to select
-        config: Configuration options
-
-    Returns:
-        DataFrame with selected questions
-    """
-    if 'conversation_type' not in all_questions.columns:
-        print("[lever_questions] No conversation_type column, using random_subset")
-        return random_subset(all_questions, n_questions, config)
-
-    # Group by conversation type
-    groups = all_questions.groupby('conversation_type')
-    n_groups = len(groups)
-
-    # Calculate samples per group
-    per_group = n_questions // n_groups
-    remainder = n_questions % n_groups
-
-    selected = []
-    for i, (group_name, group_df) in enumerate(groups):
-        n_to_sample = per_group + (1 if i < remainder else 0)
-        n_to_sample = min(n_to_sample, len(group_df))
-
-        indices = random.sample(range(len(group_df)), n_to_sample)
-        selected.append(group_df.iloc[indices])
-
-    result = pd.concat(selected, ignore_index=True)
-
-    # If we still don't have enough (due to small groups), fill randomly
-    if len(result) < n_questions:
-        remaining = all_questions[~all_questions.index.isin(result.index)]
-        n_more = n_questions - len(result)
-        if len(remaining) >= n_more:
-            more_indices = random.sample(range(len(remaining)), n_more)
-            result = pd.concat([result, remaining.iloc[more_indices]], ignore_index=True)
-
-    return result.head(n_questions)
-
-
 @register_strategy("high_agreement")
 def high_agreement(
     all_questions: pd.DataFrame,

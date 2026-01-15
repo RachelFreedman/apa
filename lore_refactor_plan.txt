@@ -1,0 +1,354 @@
+# Plan: Replicate Facebook LoRe Implementation on PRISM
+
+## Summary
+Replace the current LoRe implementation with FB code from https://github.com/facebookresearch/LoRe using a hybrid approach:
+- Copy FB core math exactly (for verification)
+- Wrap in existing interfaces (for pipeline compatibility)
+
+## Expected Results (FB repo targets)
+| Rank | Seen Test | Unseen Test | Train Seen | Train Unseen (few-shot) |
+|------|-----------|-------------|------------|-------------------------|
+| 0    | ~0.71     | ~0.71       | ~0.71      | ~0.71                   |
+| 1    | ~0.77     | ~0.77       | ~0.77      | ~0.77                   |
+| 5    | ~0.88     | ~0.88       | ~0.88      | ~0.88                   |
+| 50   | ~0.95     | ~0.97       | ~0.945     | ~0.96                   |
+
+---
+
+## COMPREHENSIVE LIST OF DIFFERENCES
+
+### 1. Embedding Data Format
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| File structure | Separate `train_embeddings.pkl`, `test_embeddings.pkl` | Single `embeddings.pkl` file | Need to split or regenerate |
+| Data structure | List of dicts with `extra_info` containing `seen`, `split`, `user_id`, embeddings | Arrays: `response_1_embeddings`, `response_2_embeddings`, `user_ids`, `labels` | Different parsing needed |
+| Embedding format | Each entry has `chosen_conv_embedding`, `rejected_conv_embedding` in `extra_info` | Flat arrays indexed by sample number | Need conversion function |
+| Metadata fields | `extra_info["seen"]`, `extra_info["split"]`, `extra_info["user_id"]` | No seen/split fields; user_id in separate array | Need to add metadata |
+
+### 2. Difference Vector Computation
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Direction | Always `chosen - rejected` (no label needed) | Stores separate embeddings, uses `label` to indicate preference | Need to compute `preferred - rejected` based on label |
+| When computed | During `group_embeddings_by_user()` at load time | Not computed; done implicitly in loss | Must convert: if `label=0` → `resp1 - resp2`, if `label=1` → `resp2 - resp1` |
+
+### 3. Data Grouping
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Output format | `List[torch.Tensor]` - one tensor per user | `SplitDataset` with batched samples | Need conversion function |
+| Tensor shape | `(n_samples_for_user, embed_dim)` per user | Mixed in single arrays | Need to group by user |
+| User ordering | **Sorted by user_id** (important for reproducibility!) | Not explicitly sorted | Must sort users |
+
+### 4. LoRe_regularized Class
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| W initialization | `torch.rand(num_classes, num_basis_vectors)` (uniform [0,1]) | `torch.rand(n_users, rank)` | **MATCHES** ✓ |
+| V initialization | `torch.randn(num_features, num_basis_vectors)` (normal) | `torch.randn(embed_dim, rank)` | **MATCHES** ✓ |
+| `_prepare_batch` | Concatenates all users, creates user index `y` | Not present - uses DataLoader | Need to implement |
+| Forward computation | `logits_all = (X_cat @ Vw) / 100.0` then gather by user | Different computation path | Need to match exactly |
+| NLL computation | `-F.logsigmoid(logits).mean()` over ALL samples | BCE per batch | **CRITICAL DIFF** |
+| Regularization | Cosine: `mean(1 - cos_sim(V_norm, V_sft_norm))` | Same formula | **MATCHES** ✓ |
+| Alpha warmup | 0→alpha from 20%→80% of iterations | Same | **MATCHES** ✓ |
+| Post-training filter | Removes basis vectors where `max(softmax(W)[:,j]) < 1e-2` | **NOT IMPLEMENTED** | Must add |
+
+### 5. Basic LoRe Class (L2 regularization)
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Regularization | L2 on V toward V_sft: `alpha * sum((V[:,j] - V_sft)**2)` | L2 on W (not V): `alpha * (W ** 2).mean()` | **WRONG TARGET** |
+| Loss | `nll + reg` (not `alpha * reg` - alpha inside loop) | `bce + alpha * reg` | Different scaling |
+| Forward | Iterates users, computes per-user NLL | Batched computation | Different weighting |
+
+### 6. PersonalizeBatch (Few-shot)
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Architecture | `nn.ParameterList` with one param per user | Uses `fewshot_adapt` method on full W matrix | Different approach |
+| Weight init | `torch.randn(num_basis_vectors)` per user | `torch.rand(n_users, rank)` | Different distribution |
+| Optimizer | Single Adam over all `w[i]` parameters | Single Adam over full W | Similar |
+| Loss | Per-user NLL, summed | BCE-style | Different |
+| Output | List of `softmax(w[i])` | Full W matrix | Different format |
+
+### 7. Hyperparameters
+
+| Parameter | FB (run_regularized) | Current | Match? |
+|-----------|----------------------|---------|--------|
+| Training iterations | 20,000 | 20,000 | ✓ |
+| Training LR | 0.5 | 0.5 | ✓ |
+| Few-shot iterations | 500 | 500 | ✓ |
+| **Few-shot LR** | **0.5** | **Same as training** | ✓ |
+| Alpha | 10,000 | 10,000 | ✓ |
+| Temperature | 100.0 | 100.0 | ✓ |
+| User split | 80/20 seen/unseen | 80/20 | ✓ |
+| Dialog split | 50/50 train/test | 50/50 | ✓ |
+| Min dialogs | >5 (>=6) | >=6 | ✓ |
+
+### 8. V_sft Extraction
+
+| Aspect | FB Implementation | Current Implementation | Match? |
+|--------|-------------------|------------------------|--------|
+| Model class | `AutoModel.from_pretrained` | `AutoModel.from_pretrained` | ✓ |
+| Layer selection | Last linear via `named_modules()` iteration | Same approach | ✓ |
+| Extraction | `weight[:, 0].reshape(-1, 1)` | Same | ✓ |
+| Output shape | `(hidden_dim, 1)` | Same | ✓ |
+
+### 9. Evaluation
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Function | `evaluate_model(X, V, w)` | `trainer.evaluate(dataloader)` | Different |
+| Metric | `(X @ V @ w > 0).sum() / n` (fraction positive) | BCE-based accuracy | Should be equivalent |
+| W format | Already softmax'd from training output | Raw W (softmax in forward) | Need to match |
+
+### 10. Rank 0 and K≤1 Handling
+
+| Aspect | FB Implementation | Current Implementation | Impact |
+|--------|-------------------|------------------------|--------|
+| Rank 0 | `V_joint = V_final`, `W = [tensor([1.0])]` per user | Uses `effective_rank = max(1, rank)` | Different approach |
+| K ≤ 1 few-shot | `W_few_shot = [tensor([1.0])]` per user (no training) | Trains with rank=1 | Different |
+
+---
+
+## Implementation Plan
+
+### Step 1: Create `apa/reward/lore_fb.py` - Copy FB Code Exactly
+
+Copy the following from FB `utils.py` **VERBATIM** (with minor adaptations for imports):
+
+```python
+# Classes to copy:
+class LoRe(nn.Module)              # Basic L2 regularization (for run())
+class LoRe_regularized(nn.Module)  # Cosine reg + warmup (for run_regularized())
+class PersonalizeBatch(nn.Module)  # Few-shot learning
+
+# Functions to copy:
+def evaluate_model(X, V, w)        # Evaluation: fraction positive
+def solve_regularized(...)         # Creates LoRe, trains, returns W, V
+def solve_regularized_simplex(...) # Creates LoRe_regularized, trains
+def learn_multiple_few_shot(...)   # Few-shot with PersonalizeBatch
+def eval_multiple(...)             # Evaluates all users, prints stats
+def run_regularized(...)           # Full training pipeline
+```
+
+**Critical FB code details to preserve:**
+- Device: `torch.device("cuda:0" if torch.cuda.is_available() else "cpu")`
+- LoRe_regularized `_prepare_batch()`: concatenates all user data, creates index tensor
+- Post-training filter: `mask = (max_per_basis >= 1e-2)`
+- NLL loss: `-F.logsigmoid(logits).mean()` (not BCE)
+
+### Step 2: Add `convert_to_fb_format()` to `apa/data/user_splits.py`
+
+```python
+def convert_to_fb_format(
+    embeddings: dict,
+    seen_user_ratio: float = 0.8,
+    dialog_train_ratio: float = 0.5,
+    min_samples_per_user: int = 6,
+    seed: int = 42,
+    device: str = "cuda:0",
+) -> dict:
+    """
+    Convert current embedding format to FB format.
+
+    FB format: List[torch.Tensor] where each tensor is (n_samples, embed_dim)
+    containing difference vectors (preferred - rejected) for one user.
+
+    Returns:
+        dict with keys:
+        - train_seen: List[Tensor] - seen users' training samples
+        - test_seen: List[Tensor] - seen users' test samples
+        - train_unseen: List[Tensor] - unseen users' training samples
+        - test_unseen: List[Tensor] - unseen users' test samples
+        - n_seen: int
+        - n_unseen: int
+
+    Algorithm:
+    1. Group samples by user_id
+    2. Filter users with < min_samples_per_user
+    3. Sort users alphabetically (for reproducibility)
+    4. Split users 80/20 into seen/unseen
+    5. For each user, split their samples 50/50 into train/test
+    6. For each sample:
+       - If label=0: diff = response_1 - response_2 (prefer resp1)
+       - If label=1: diff = response_2 - response_1 (prefer resp2)
+    7. Stack each user's diffs into a tensor
+    """
+```
+
+### Step 3: Rewrite `scripts/train_lore_fb.py`
+
+Structure to match FB `train_basis.py` exactly:
+
+```python
+#!/usr/bin/env python3
+"""Train LoRe on PRISM - FB replication."""
+
+import torch
+import matplotlib.pyplot as plt
+from transformers import AutoModel
+
+from apa.utils.embedding_utils import load_embeddings
+from apa.data.user_splits import convert_to_fb_format
+from apa.reward.lore_fb import run_regularized
+
+def extract_v_sft(device):
+    """Extract V_sft exactly as FB does."""
+    model_name = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
+    rm = AutoModel.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,
+        device_map=device,
+        attn_implementation="eager",
+        num_labels=1,
+    )
+    # Find last linear layer
+    last_linear_layer = None
+    for name, module in rm.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            last_linear_layer = module
+    V_final = last_linear_layer.weight[:, 0].to(device).to(torch.float32).reshape(-1, 1)
+    del rm
+    torch.cuda.empty_cache()
+    return V_final
+
+def main():
+    device = "cuda:0"
+
+    # Load embeddings and convert to FB format
+    embeddings = load_embeddings(...)
+    fb_data = convert_to_fb_format(embeddings, device=device)
+
+    train_seen = fb_data['train_seen']
+    test_seen = fb_data['test_seen']
+    train_unseen = fb_data['train_unseen']
+    test_unseen = fb_data['test_unseen']
+    N = fb_data['n_seen']
+    N_unseen = fb_data['n_unseen']
+
+    # Extract V_sft
+    V_final = extract_v_sft(device)
+
+    # Run FB pipeline
+    K_list = [0, 1, 5, 10, 15, 20, 25, 50]
+    alpha_list = [1e4]
+
+    results = run_regularized(
+        K_list, alpha_list, V_final,
+        train_seen, test_seen,
+        train_unseen, test_unseen,
+        N, N_unseen, device
+    )
+
+    # Plot (matching FB format)
+    plot_results(K_list, results, alpha_list[0])
+
+def plot_results(K_list, results, alpha):
+    """Generate plot matching FB's generalization_accuracy_vs_rank_lore_alpha_10000.0.png"""
+    (train_acc, seen_test_acc, unseen_train_acc, unseen_test_acc,
+     train_std, seen_std, unseen_train_std, unseen_test_std) = results
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(K_list, seen_test_acc, marker='o', label="Seen Users")
+    plt.plot(K_list, unseen_test_acc, marker='o', label="Unseen Users")
+    plt.plot(K_list, train_acc, marker='o', label="Train Seen Users")
+    plt.plot(K_list, unseen_train_acc, marker='o', label="Train Unseen Users Fewshot")
+    plt.xlabel('rank')
+    plt.ylabel('Accuracies')
+    plt.title('Generalization Accuracy vs. Rank')
+    plt.xticks(K_list, labels=["ref" if k==0 else str(k) for k in K_list])
+    plt.legend()
+    plt.savefig(f'generalization_accuracy_vs_rank_lore_alpha_{alpha}.png', dpi=300)
+    plt.close()
+```
+
+### Step 4: Keep `apa/reward/lore_model.py` as Wrapper
+
+Add method to load FB-trained model:
+
+```python
+@classmethod
+def from_fb_training(cls, V: torch.Tensor, W: torch.Tensor, alpha: float = 10000.0):
+    """
+    Create LoReRewardModel from FB training outputs.
+
+    Args:
+        V: Basis matrix from solve_regularized_simplex (embed_dim, rank)
+        W: User weights from training (already softmax'd) (n_users, rank)
+        alpha: Regularization coefficient (for reference)
+    """
+    model = cls(
+        embed_dim=V.shape[0],
+        rank=V.shape[1],
+        n_users=W.shape[0],
+        alpha=alpha,
+    )
+    model.V.data = V
+    # W from FB is already softmax'd, but our model applies softmax in forward
+    # So we need to store logits that will produce the same softmax output
+    # Use log(W) but handle zeros
+    model.W.data = torch.log(W.clamp(min=1e-10))
+    return model
+```
+
+### Step 5: Delete `apa/reward/lore_fb_trainer.py`
+
+No longer needed - FB code handles training directly.
+
+---
+
+## Files Summary
+
+| File | Action | Changes |
+|------|--------|---------|
+| `apa/reward/lore_fb.py` | **CREATE** | Copy FB utils.py classes/functions verbatim |
+| `apa/data/user_splits.py` | **MODIFY** | Add `convert_to_fb_format()` function |
+| `scripts/train_lore_fb.py` | **REWRITE** | Match FB train_basis.py structure |
+| `apa/reward/lore_model.py` | **MODIFY** | Add `from_fb_training()` classmethod |
+| `apa/reward/lore_fb_trainer.py` | **DELETE** | Replaced by lore_fb.py |
+
+---
+
+## Verification Steps
+
+### 1. Sanity Check Data Conversion
+```python
+# Verify FB format is correct
+fb_data = convert_to_fb_format(embeddings)
+print(f"N seen: {fb_data['n_seen']}")
+print(f"N unseen: {fb_data['n_unseen']}")
+print(f"Train seen[0] shape: {fb_data['train_seen'][0].shape}")  # Should be (n_samples, 4096)
+print(f"All diffs positive test: {(fb_data['train_seen'][0].sum(dim=1) != 0).all()}")  # Sanity check
+```
+
+### 2. Quick Training Test (reduced iterations)
+```bash
+# Modify run_regularized to use fewer iterations for quick test
+python scripts/train_lore_fb.py  # With 1000 iterations
+```
+Expected: rank 0 < rank 1 < rank 5 in accuracy
+
+### 3. Full Replication (20k iterations)
+```bash
+python scripts/train_lore_fb.py --full
+```
+Expected results (within ~2%):
+- rank 0: ~0.71
+- rank 1: ~0.77
+- rank 5: ~0.88
+- rank 50: ~0.95+
+
+### 4. Visual Comparison
+Compare generated `generalization_accuracy_vs_rank_lore_alpha_10000.0.png` with FB's plot.
+
+---
+
+## Risk Mitigation
+
+1. **Copy FB code exactly** - no optimizations until results match
+2. **Test data conversion first** - verify diff vectors before training
+3. **Compare intermediate values** - log NLL, W stats like FB does
+4. **Keep old implementation** - don't delete until results verified
+5. **Check user ordering** - must be sorted alphabetically like FB

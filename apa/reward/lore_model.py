@@ -58,11 +58,15 @@ class LoReRewardModel(nn.Module):
 
         # Shared basis matrix V: (embed_dim, rank)
         # This captures the shared structure of preferences across users
-        self.V = nn.Parameter(torch.randn(embed_dim, rank) * 0.01)
+        self.V = nn.Parameter(torch.randn(embed_dim, rank))
 
         # User-specific weight matrix W: (n_users, rank)
         # Each row is a user's preference vector in the basis space
-        self.W = nn.Parameter(torch.randn(n_users, rank) * 0.01)
+        # FB uses uniform [0,1] initialization, then applies softmax during forward
+        self.W = nn.Parameter(torch.rand(n_users, rank))
+
+        # Temperature for logit scaling (FB uses 100.0)
+        self.temperature = 100.0
 
     def forward(
         self,
@@ -71,6 +75,9 @@ class LoReRewardModel(nn.Module):
     ) -> torch.Tensor:
         """
         Compute rewards for embeddings given user indices.
+
+        Following FB LoRe: applies softmax to W to get probability weights,
+        then computes reward = embed @ V @ softmax(W)[user].
 
         Args:
             embeddings: (batch_size, embed_dim) response embeddings
@@ -82,8 +89,12 @@ class LoReRewardModel(nn.Module):
         # Project embeddings to basis space: (batch_size, rank)
         projected = embeddings @ self.V
 
+        # Apply softmax to W to get probability weights (FB approach)
+        # This ensures weights sum to 1 and are positive
+        W_softmax = F.softmax(self.W, dim=1)
+
         # Get user weights: (batch_size, rank)
-        user_weights = self.W[user_indices]
+        user_weights = W_softmax[user_indices]
 
         # Compute rewards as dot product: (batch_size,)
         rewards = (projected * user_weights).sum(dim=-1)
@@ -100,6 +111,7 @@ class LoReRewardModel(nn.Module):
         Compute preference logits for pairs of responses.
 
         Uses the Bradley-Terry model: P(1 > 2) = sigmoid(r1 - r2)
+        Following FB: divides by temperature (100.0) for numerical stability.
 
         Args:
             emb_1: (batch_size, embed_dim) embeddings for response 1
@@ -112,8 +124,8 @@ class LoReRewardModel(nn.Module):
         r1 = self.forward(emb_1, user_indices)
         r2 = self.forward(emb_2, user_indices)
 
-        # Logit for preferring response 2
-        return r2 - r1
+        # Logit for preferring response 2 (with temperature scaling per FB)
+        return (r2 - r1) / self.temperature
 
     def compute_loss(
         self,
@@ -339,7 +351,8 @@ class LoReRewardModel(nn.Module):
             n_new_users: Number of new users to add
         """
         old_W = self.W.data
-        new_W = torch.randn(n_new_users, self.rank) * 0.01
+        # Use rand (uniform [0,1]) to match FB initialization
+        new_W = torch.rand(n_new_users, self.rank)
 
         self.n_users += n_new_users
         self.W = nn.Parameter(torch.cat([old_W, new_W], dim=0))

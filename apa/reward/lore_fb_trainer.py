@@ -314,8 +314,9 @@ class LoReFBTrainer:
             n_users = self.model.n_users
 
         self.model.n_users = n_users
+        # Use rand (uniform [0,1]) to match FB initialization
         self.model.W = torch.nn.Parameter(
-            torch.randn(n_users, self.model.rank, device=self.device) * 0.01
+            torch.rand(n_users, self.model.rank, device=self.device)
         )
         # Recreate W optimizer with new parameters
         self.optimizer_W = torch.optim.Adam([self.model.W], lr=self.learning_rate)

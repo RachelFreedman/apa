@@ -56,10 +56,10 @@ class TestLoReRewardModel:
         logits = model.compute_preference_logits(emb_1, emb_2, user_indices)
 
         assert logits.shape == (4,)
-        # Logits should be r2 - r1
+        # Logits should be (r2 - r1) / temperature
         r1 = model(emb_1, user_indices)
         r2 = model(emb_2, user_indices)
-        expected = r2 - r1
+        expected = (r2 - r1) / model.temperature
         assert torch.allclose(logits, expected)
 
     def test_compute_loss(self):

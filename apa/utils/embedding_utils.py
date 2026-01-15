@@ -276,10 +276,68 @@ def save_embeddings(embeddings: dict[str, np.ndarray], path: Path) -> None:
     print(f"Saved embeddings to {path}")
 
 
-def load_embeddings(path: Path) -> dict[str, np.ndarray]:
-    """Load embeddings from disk."""
+def load_embeddings(path: Path, remap_user_ids: bool = True) -> dict[str, np.ndarray]:
+    """
+    Load embeddings from disk.
+
+    Args:
+        path: Path to embeddings file
+        remap_user_ids: If True and embeddings have interaction_id format (intXXX),
+                       remap to proper user_id (userXXX) using HuggingFace mapping
+
+    Returns:
+        Embeddings dictionary with properly mapped user_ids
+    """
     import pickle
     with open(path, 'rb') as f:
         embeddings = pickle.load(f)
     print(f"Loaded embeddings from {path}")
+
+    # Remap user_ids if they're in interaction_id format
+    if remap_user_ids and 'user_ids' in embeddings:
+        sample_id = str(embeddings['user_ids'][0])
+        if sample_id.startswith('int'):
+            embeddings = remap_interaction_to_user_ids(embeddings)
+
+    return embeddings
+
+
+def remap_interaction_to_user_ids(embeddings: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """
+    Remap interaction_ids to proper user_ids using HuggingFace PRISM data.
+
+    The original pairwise CSV didn't have user_id, only interaction_id and conversation_id.
+    This function maps conversation_id -> user_id to get actual participant identifiers.
+
+    Args:
+        embeddings: Embeddings dict with 'user_ids' containing interaction_id format (intXXX)
+
+    Returns:
+        Embeddings dict with 'user_ids' remapped to user_id format (userXXX)
+    """
+    from apa.data.prism_loader import load_prism_pairwise
+
+    print("Remapping interaction_ids to user_ids...")
+
+    # Load the pairwise data with user_id mapping
+    df = load_prism_pairwise()
+
+    # Create interaction_id to user_id mapping via question_id
+    # The embeddings have question_ids that match the dataframe
+    if 'question_ids' not in embeddings:
+        raise ValueError("Embeddings must have 'question_ids' for remapping")
+
+    # Create mapping from question_id to user_id
+    question_to_user = dict(zip(df['question_id'], df['user_id']))
+
+    # Remap user_ids
+    old_user_ids = embeddings['user_ids']
+    question_ids = embeddings['question_ids']
+    new_user_ids = np.array([question_to_user.get(qid, None) for qid in question_ids])
+
+    n_mapped = np.sum(new_user_ids != None)  # noqa: E711
+    n_users = len(set(uid for uid in new_user_ids if uid is not None))
+    print(f"  Remapped {n_mapped}/{len(new_user_ids)} samples to {n_users} unique users")
+
+    embeddings['user_ids'] = new_user_ids
     return embeddings

@@ -276,7 +276,7 @@ def save_embeddings(embeddings: dict[str, np.ndarray], path: Path) -> None:
     print(f"Saved embeddings to {path}")
 
 
-def load_embeddings(path: Path, remap_user_ids: bool = True) -> dict[str, np.ndarray]:
+def load_embeddings(path: Path, remap_user_ids: bool = True, load_labels_from_prism: bool = True) -> dict[str, np.ndarray]:
     """
     Load embeddings from disk.
 
@@ -284,9 +284,11 @@ def load_embeddings(path: Path, remap_user_ids: bool = True) -> dict[str, np.nda
         path: Path to embeddings file
         remap_user_ids: If True and embeddings have interaction_id format (intXXX),
                        remap to proper user_id (userXXX) using HuggingFace mapping
+        load_labels_from_prism: If True, load labels from PRISM dataframe instead
+                               of trusting the labels in the embeddings file
 
     Returns:
-        Embeddings dictionary with properly mapped user_ids
+        Embeddings dictionary with properly mapped user_ids and labels
     """
     import pickle
     with open(path, 'rb') as f:
@@ -299,6 +301,48 @@ def load_embeddings(path: Path, remap_user_ids: bool = True) -> dict[str, np.nda
         if sample_id.startswith('int'):
             embeddings = remap_interaction_to_user_ids(embeddings)
 
+    # Load proper labels from PRISM dataframe
+    if load_labels_from_prism and 'question_ids' in embeddings:
+        embeddings = _load_labels_from_prism(embeddings)
+
+    return embeddings
+
+
+def _load_labels_from_prism(embeddings: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """
+    Load proper labels from PRISM dataframe.
+
+    The embeddings file may have incorrect or placeholder labels.
+    This function loads the actual human_preferred labels from the PRISM data.
+
+    Args:
+        embeddings: Embeddings dict with 'question_ids'
+
+    Returns:
+        Embeddings dict with correct 'labels' from PRISM human_preferred column
+    """
+    from apa.data.prism_loader import load_prism_pairwise
+
+    df = load_prism_pairwise()
+
+    # Create mapping from question_id to label
+    # human_preferred='2' means prefer response 2 (label=1)
+    # human_preferred='1' means prefer response 1 (label=0)
+    question_to_label = {}
+    for _, row in df.iterrows():
+        pref = str(row['human_preferred'])
+        label = 1 if pref == '2' else 0
+        question_to_label[row['question_id']] = label
+
+    # Map labels
+    question_ids = embeddings['question_ids']
+    labels = np.array([question_to_label.get(qid, 0) for qid in question_ids])
+
+    # Count label distribution
+    label_counts = np.bincount(labels)
+    print(f"Loaded labels from PRISM: {label_counts[0]} prefer resp1, {label_counts[1]} prefer resp2")
+
+    embeddings['labels'] = labels
     return embeddings
 
 

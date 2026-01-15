@@ -14,7 +14,7 @@ This allows proper evaluation of:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List
 
 import numpy as np
 import torch
@@ -265,3 +265,169 @@ class FBDataSplitter:
             'test_unseen_samples': len(result.test_unseen),
             'embedding_dim': result.train_seen.embedding_dim,
         }
+
+
+def convert_to_fb_format(
+    embeddings: dict,
+    seen_user_ratio: float = 0.8,
+    dialog_train_ratio: float = 0.5,
+    min_samples_per_user: int = 6,
+    seed: int = 42,
+    device: str = "cuda:0",
+) -> dict:
+    """
+    Convert current embedding format to FB format.
+
+    FB format: List[torch.Tensor] where each tensor is (n_samples, embed_dim)
+    containing difference vectors (preferred - rejected) for one user.
+
+    Args:
+        embeddings: Dict with 'response_1_embeddings', 'response_2_embeddings',
+                   'labels', 'user_ids'
+        seen_user_ratio: Fraction of users for seen set (default 0.8)
+        dialog_train_ratio: Fraction of each user's samples for training (default 0.5)
+        min_samples_per_user: Minimum samples required per user (default 6)
+        seed: Random seed for reproducibility
+        device: Device to place tensors on
+
+    Returns:
+        dict with keys:
+        - train_seen: List[Tensor] - seen users' training samples
+        - test_seen: List[Tensor] - seen users' test samples
+        - train_unseen: List[Tensor] - unseen users' training samples
+        - test_unseen: List[Tensor] - unseen users' test samples
+        - n_seen: int - number of seen users
+        - n_unseen: int - number of unseen users
+        - seen_users: List[str] - sorted list of seen user IDs
+        - unseen_users: List[str] - sorted list of unseen user IDs
+
+    Algorithm:
+    1. Group samples by user_id
+    2. Filter users with < min_samples_per_user
+    3. Sort users alphabetically (for reproducibility - matches FB)
+    4. Shuffle and split users 80/20 into seen/unseen
+    5. For each user, shuffle and split their samples 50/50 into train/test
+    6. For each sample, compute difference vector:
+       - If label=0: diff = response_1 - response_2 (prefer resp1)
+       - If label=1: diff = response_2 - response_1 (prefer resp2)
+    7. Stack each user's diffs into a tensor
+    """
+    rng = np.random.RandomState(seed)
+
+    # Extract arrays
+    resp1_emb = embeddings['response_1_embeddings']
+    resp2_emb = embeddings['response_2_embeddings']
+    labels = embeddings['labels']
+    user_ids = embeddings['user_ids']
+
+    # Step 1: Group samples by user_id
+    user_to_samples: dict[Any, list[int]] = {}
+    for idx, user_id in enumerate(user_ids):
+        if user_id not in user_to_samples:
+            user_to_samples[user_id] = []
+        user_to_samples[user_id].append(idx)
+
+    # Step 2: Filter users with too few samples
+    valid_users = [
+        user_id for user_id, samples in user_to_samples.items()
+        if len(samples) >= min_samples_per_user
+    ]
+
+    # Step 3: Sort users alphabetically (important for FB reproducibility!)
+    valid_users = sorted(valid_users, key=str)
+    print(f"Found {len(valid_users)} users with >= {min_samples_per_user} samples")
+
+    # Step 4: Shuffle users and split into seen/unseen
+    shuffled_users = valid_users.copy()
+    rng.shuffle(shuffled_users)
+
+    n_seen = int(len(shuffled_users) * seen_user_ratio)
+    seen_users = sorted(shuffled_users[:n_seen], key=str)  # Sort for reproducibility
+    unseen_users = sorted(shuffled_users[n_seen:], key=str)
+
+    print(f"Seen users: {len(seen_users)}, Unseen users: {len(unseen_users)}")
+
+    def create_user_tensors(users: list, split: str) -> List[torch.Tensor]:
+        """
+        Create list of difference tensors for a set of users.
+
+        Args:
+            users: List of user IDs
+            split: 'train' or 'test'
+
+        Returns:
+            List of tensors, one per user
+        """
+        tensors = []
+
+        for user_id in users:
+            sample_indices = user_to_samples[user_id].copy()
+
+            # Shuffle samples deterministically per user
+            user_seed = hash(str(user_id)) % (2**31)
+            user_rng = np.random.RandomState(user_seed)
+            user_rng.shuffle(sample_indices)
+
+            # Split into train/test
+            n_train = max(1, int(len(sample_indices) * dialog_train_ratio))
+            if split == 'train':
+                selected_indices = sample_indices[:n_train]
+            else:
+                selected_indices = sample_indices[n_train:]
+
+            if len(selected_indices) == 0:
+                # Edge case: no samples for this split
+                # Create empty tensor with correct shape
+                tensors.append(torch.zeros(0, resp1_emb.shape[1], device=device))
+                continue
+
+            # Compute difference vectors
+            diffs = []
+            for idx in selected_indices:
+                r1 = resp1_emb[idx]
+                r2 = resp2_emb[idx]
+                label = labels[idx]
+
+                # If label=0: prefer response_1, so diff = r1 - r2
+                # If label=1: prefer response_2, so diff = r2 - r1
+                # This ensures diff always points toward preferred response
+                if label == 0:
+                    diff = r1 - r2
+                else:
+                    diff = r2 - r1
+
+                diffs.append(diff)
+
+            # Stack into tensor
+            diffs_tensor = torch.tensor(np.array(diffs), dtype=torch.float32, device=device)
+            tensors.append(diffs_tensor)
+
+        return tensors
+
+    # Step 5-7: Create tensors for each split
+    train_seen = create_user_tensors(seen_users, 'train')
+    test_seen = create_user_tensors(seen_users, 'test')
+    train_unseen = create_user_tensors(unseen_users, 'train')
+    test_unseen = create_user_tensors(unseen_users, 'test')
+
+    # Print statistics
+    total_train_seen = sum(t.shape[0] for t in train_seen)
+    total_test_seen = sum(t.shape[0] for t in test_seen)
+    total_train_unseen = sum(t.shape[0] for t in train_unseen)
+    total_test_unseen = sum(t.shape[0] for t in test_unseen)
+
+    print(f"Train seen samples: {total_train_seen}")
+    print(f"Test seen samples: {total_test_seen}")
+    print(f"Train unseen samples: {total_train_unseen}")
+    print(f"Test unseen samples: {total_test_unseen}")
+
+    return {
+        'train_seen': train_seen,
+        'test_seen': test_seen,
+        'train_unseen': train_unseen,
+        'test_unseen': test_unseen,
+        'n_seen': len(seen_users),
+        'n_unseen': len(unseen_users),
+        'seen_users': seen_users,
+        'unseen_users': unseen_users,
+    }

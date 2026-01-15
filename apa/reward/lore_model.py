@@ -328,6 +328,43 @@ class LoReRewardModel(nn.Module):
         print(f"Loaded LoRe model from {path}")
         return model
 
+    @classmethod
+    def from_fb_training(
+        cls,
+        V: torch.Tensor,
+        W: torch.Tensor,
+        alpha: float = 10000.0,
+    ) -> "LoReRewardModel":
+        """
+        Create LoReRewardModel from FB training outputs.
+
+        FB training returns W that's already softmax'd, but our model applies
+        softmax in the forward pass. We store logits that will produce the
+        same softmax output.
+
+        Args:
+            V: Basis matrix from solve_regularized_simplex (embed_dim, rank)
+            W: User weights from training (already softmax'd) (n_users, rank)
+            alpha: Regularization coefficient (for reference)
+
+        Returns:
+            LoReRewardModel with V and W configured to match FB outputs
+        """
+        model = cls(
+            embed_dim=V.shape[0],
+            rank=V.shape[1],
+            n_users=W.shape[0],
+            alpha=alpha,
+        )
+        model.V.data = V.clone()
+
+        # W from FB is already softmax'd, but our model applies softmax in forward
+        # So we need to store logits that will produce the same softmax output
+        # Use log(W) but handle zeros to avoid -inf
+        model.W.data = torch.log(W.clamp(min=1e-10))
+
+        return model
+
     def freeze_basis(self) -> None:
         """Freeze the shared basis V (for learning new user vectors)."""
         self.V.requires_grad = False

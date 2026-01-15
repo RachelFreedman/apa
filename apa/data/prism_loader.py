@@ -7,6 +7,7 @@ PyTorch Dataset classes for training.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,27 @@ import torch
 from torch.utils.data import Dataset
 
 from apa.config import DatasetConfig, HISTORICAL_PREFS_DATA
+
+
+@lru_cache(maxsize=1)
+def _load_conversation_to_user_mapping() -> dict[str, str]:
+    """
+    Load the conversation_id to user_id mapping from HuggingFace PRISM dataset.
+
+    The PRISM pairwise CSV has conversation_id but not user_id.
+    User_id represents actual participants (1,396 unique users).
+
+    Returns:
+        Dictionary mapping conversation_id -> user_id
+    """
+    from datasets import load_dataset
+
+    print("Loading conversation→user_id mapping from HuggingFace...")
+    ds = load_dataset('HannahRoseKirk/prism-alignment', 'conversations')
+    conv_df = ds['train'].to_pandas()[['conversation_id', 'user_id']]
+    mapping = dict(zip(conv_df['conversation_id'], conv_df['user_id']))
+    print(f"  Loaded mapping for {len(mapping)} conversations")
+    return mapping
 
 
 def load_prism_pairwise(
@@ -36,7 +58,8 @@ def load_prism_pairwise(
             - response_1, response_2
             - response_1_id, response_2_id
             - human_preferred (1 or 2)
-            - user_id (from PRISM)
+            - user_id (mapped from conversation_id via HuggingFace)
+            - conversation_id, interaction_id (original identifiers)
     """
     if path is None:
         path = HISTORICAL_PREFS_DATA / "prism" / "questions_pairwise.csv"
@@ -46,6 +69,16 @@ def load_prism_pairwise(
 
     if n_samples is not None:
         df = df.head(n_samples)
+
+    # Map conversation_id to user_id if not already present
+    if 'user_id' not in df.columns and 'conversation_id' in df.columns:
+        conv_to_user = _load_conversation_to_user_mapping()
+        df['user_id'] = df['conversation_id'].map(conv_to_user)
+
+        # Report mapping statistics
+        n_mapped = df['user_id'].notna().sum()
+        n_users = df['user_id'].nunique()
+        print(f"  Mapped {n_mapped}/{len(df)} rows to {n_users} unique users")
 
     print(f"Loaded {len(df)} pairwise comparisons")
     return df

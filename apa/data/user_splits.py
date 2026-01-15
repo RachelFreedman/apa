@@ -99,6 +99,11 @@ class FBDataSplitter:
 
     Splits users into seen (80%) and unseen (20%), then for each user
     splits their samples into train (50%) and test (50%).
+
+    Filtering:
+        - Users with <=5 pairwise comparisons are filtered out (matching FB's ">5 dialogs" filter)
+        - This ensures enough data per user to learn meaningful W vectors
+        - For PRISM: 1,358 users with >5 samples (out of 1,396 total), 21,917 samples
     """
 
     def __init__(
@@ -107,7 +112,7 @@ class FBDataSplitter:
         seen_user_ratio: float = 0.8,
         dialog_train_ratio: float = 0.5,
         seed: int = 42,
-        min_samples_per_user: int = 2,
+        min_samples_per_user: int = 6,
     ):
         """
         Initialize the data splitter.
@@ -118,7 +123,7 @@ class FBDataSplitter:
             seen_user_ratio: Fraction of users to use as "seen" (default 0.8)
             dialog_train_ratio: Fraction of each user's dialogs for training (default 0.5)
             seed: Random seed for reproducibility
-            min_samples_per_user: Minimum samples required per user to include them
+            min_samples_per_user: Minimum samples required per user (default 6, matching FB's >5 filter)
         """
         self.embeddings = embeddings
         self.seen_user_ratio = seen_user_ratio

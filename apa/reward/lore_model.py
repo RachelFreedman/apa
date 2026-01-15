@@ -146,6 +146,99 @@ class LoReRewardModel(nn.Module):
 
         return bce_loss + reg_loss
 
+    def cosine_regularization(self, V_sft: torch.Tensor) -> torch.Tensor:
+        """
+        Compute cosine similarity regularization toward V_sft.
+
+        Following FB LoRe: regularization = 1 - cosine_similarity(V, V_sft)
+        This pulls V toward the pretrained reference direction.
+
+        Args:
+            V_sft: Reference basis matrix from pretrained model.
+                   Shape should be (embed_dim, rank) or (embed_dim, 1).
+                   If V_sft has fewer columns than V, we compare only the
+                   first V_sft.shape[1] columns of V.
+
+        Returns:
+            Scalar regularization loss (higher = more different from V_sft)
+        """
+        # Normalize both V and V_sft for cosine similarity
+        V_norm = F.normalize(self.V.view(-1), dim=0)
+
+        # If V_sft has fewer columns, tile or compare first K columns
+        if V_sft.shape[1] < self.rank:
+            # Use only the first V_sft columns from V for comparison
+            V_subset = self.V[:, :V_sft.shape[1]]
+            V_norm = F.normalize(V_subset.view(-1), dim=0)
+
+        V_sft_norm = F.normalize(V_sft.view(-1), dim=0)
+
+        # Cosine similarity (scalar)
+        cos_sim = torch.dot(V_norm, V_sft_norm)
+
+        # Return 1 - cos_sim so that minimizing this maximizes similarity
+        return 1.0 - cos_sim
+
+    def compute_loss_alternating(
+        self,
+        emb_1: torch.Tensor,
+        emb_2: torch.Tensor,
+        user_indices: torch.Tensor,
+        labels: torch.Tensor,
+        V_sft: torch.Tensor | None = None,
+        alpha: float = 0.0,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """
+        Compute loss for FB-style alternating minimization.
+
+        This is similar to compute_loss but:
+        - Uses cosine regularization instead of L2 on W
+        - Returns detailed metrics for logging
+        - Alpha is passed explicitly (for warmup schedule)
+
+        Args:
+            emb_1: (batch_size, embed_dim) embeddings for response 1
+            emb_2: (batch_size, embed_dim) embeddings for response 2
+            user_indices: (batch_size,) user indices
+            labels: (batch_size,) binary labels (1 if response 2 preferred)
+            V_sft: Reference basis matrix for regularization (optional)
+            alpha: Regularization coefficient (0 = no regularization)
+
+        Returns:
+            Tuple of (total_loss, metrics_dict) where metrics_dict includes:
+            - bce_loss: Binary cross-entropy loss
+            - reg_loss: Cosine regularization loss (or 0 if V_sft is None)
+            - accuracy: Batch accuracy
+        """
+        logits = self.compute_preference_logits(emb_1, emb_2, user_indices)
+
+        # Binary cross-entropy loss
+        bce_loss = F.binary_cross_entropy_with_logits(
+            logits, labels.float(), reduction='mean'
+        )
+
+        # Cosine regularization (if V_sft provided and alpha > 0)
+        if V_sft is not None and alpha > 0:
+            reg_loss = self.cosine_regularization(V_sft)
+            total_loss = bce_loss + alpha * reg_loss
+            reg_loss_value = reg_loss.item()
+        else:
+            total_loss = bce_loss
+            reg_loss_value = 0.0
+
+        # Compute accuracy for logging
+        with torch.no_grad():
+            preds = (logits > 0).long()
+            accuracy = (preds == labels).float().mean().item()
+
+        metrics = {
+            'bce_loss': bce_loss.item(),
+            'reg_loss': reg_loss_value,
+            'accuracy': accuracy,
+        }
+
+        return total_loss, metrics
+
     def get_user_reward_function(self, user_idx: int):
         """
         Get a reward function for a specific user.

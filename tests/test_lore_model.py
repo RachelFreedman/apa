@@ -76,6 +76,101 @@ class TestLoReRewardModel:
         assert loss.shape == ()
         assert loss.item() > 0  # Loss should be positive
 
+    def test_cosine_regularization(self):
+        """Test cosine regularization computation."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        # Create V_sft with same shape as V
+        V_sft = torch.randn(32, 4)
+
+        reg_loss = model.cosine_regularization(V_sft)
+
+        assert reg_loss.shape == ()
+        # Regularization should be between 0 and 2 (1 - cos_sim where cos_sim is [-1, 1])
+        assert 0 <= reg_loss.item() <= 2
+
+    def test_cosine_regularization_identical(self):
+        """Test cosine regularization is 0 when V equals V_sft."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        # Use model's V as V_sft (they should be identical)
+        V_sft = model.V.data.clone()
+
+        reg_loss = model.cosine_regularization(V_sft)
+
+        # Should be approximately 0 (perfect similarity)
+        assert reg_loss.item() == pytest.approx(0.0, abs=1e-5)
+
+    def test_cosine_regularization_smaller_v_sft(self):
+        """Test cosine regularization with smaller V_sft (rank 1)."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        # V_sft with only 1 column (like from pretrained model)
+        V_sft = torch.randn(32, 1)
+
+        reg_loss = model.cosine_regularization(V_sft)
+
+        assert reg_loss.shape == ()
+        assert 0 <= reg_loss.item() <= 2
+
+    def test_compute_loss_alternating_basic(self):
+        """Test alternating loss computation without regularization."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        emb_1 = torch.randn(4, 32)
+        emb_2 = torch.randn(4, 32)
+        user_indices = torch.tensor([0, 1, 2, 3])
+        labels = torch.tensor([0, 1, 0, 1])
+
+        loss, metrics = model.compute_loss_alternating(
+            emb_1, emb_2, user_indices, labels
+        )
+
+        assert loss.shape == ()
+        assert loss.item() > 0
+        assert 'bce_loss' in metrics
+        assert 'reg_loss' in metrics
+        assert 'accuracy' in metrics
+        assert metrics['reg_loss'] == 0.0  # No V_sft provided
+
+    def test_compute_loss_alternating_with_regularization(self):
+        """Test alternating loss computation with regularization."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        emb_1 = torch.randn(4, 32)
+        emb_2 = torch.randn(4, 32)
+        user_indices = torch.tensor([0, 1, 2, 3])
+        labels = torch.tensor([0, 1, 0, 1])
+        V_sft = torch.randn(32, 4)
+
+        loss, metrics = model.compute_loss_alternating(
+            emb_1, emb_2, user_indices, labels,
+            V_sft=V_sft, alpha=1.0
+        )
+
+        assert loss.shape == ()
+        assert metrics['reg_loss'] > 0  # Should have regularization
+        # Total loss should be bce_loss + alpha * reg_loss
+        expected_loss = metrics['bce_loss'] + 1.0 * metrics['reg_loss']
+        assert loss.item() == pytest.approx(expected_loss, abs=1e-5)
+
+    def test_compute_loss_alternating_accuracy(self):
+        """Test that accuracy is computed correctly in alternating loss."""
+        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+
+        # Create a batch where we know the predictions
+        emb_1 = torch.randn(4, 32)
+        emb_2 = torch.randn(4, 32)
+        user_indices = torch.tensor([0, 0, 0, 0])
+        labels = torch.tensor([0, 1, 0, 1])
+
+        _, metrics = model.compute_loss_alternating(
+            emb_1, emb_2, user_indices, labels
+        )
+
+        # Accuracy should be between 0 and 1
+        assert 0 <= metrics['accuracy'] <= 1
+
     def test_score_responses(self):
         """Test scoring multiple responses for a single user."""
         model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)

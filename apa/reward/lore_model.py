@@ -162,34 +162,27 @@ class LoReRewardModel(nn.Module):
         """
         Compute cosine similarity regularization toward V_sft.
 
-        Following FB LoRe: regularization = 1 - cosine_similarity(V, V_sft)
-        This pulls V toward the pretrained reference direction.
+        Following FB LoRe: normalizes per-column (dim=0) and computes
+        mean cosine similarity across all columns.
 
         Args:
             V_sft: Reference basis matrix from pretrained model.
-                   Shape should be (embed_dim, rank) or (embed_dim, 1).
-                   If V_sft has fewer columns than V, we compare only the
-                   first V_sft.shape[1] columns of V.
+                   Shape should be (embed_dim, 1).
+                   Each column of V is compared to V_sft (broadcast).
 
         Returns:
             Scalar regularization loss (higher = more different from V_sft)
         """
-        # Normalize both V and V_sft for cosine similarity
-        V_norm = F.normalize(self.V.view(-1), dim=0)
+        # Per-column normalization (FB approach)
+        V_norm = F.normalize(self.V, dim=0)  # (embed_dim, rank)
+        V_sft_norm = F.normalize(V_sft, dim=0)  # (embed_dim, 1)
 
-        # If V_sft has fewer columns, tile or compare first K columns
-        if V_sft.shape[1] < self.rank:
-            # Use only the first V_sft columns from V for comparison
-            V_subset = self.V[:, :V_sft.shape[1]]
-            V_norm = F.normalize(V_subset.view(-1), dim=0)
+        # Compute cosine similarity for each column of V against V_sft
+        # Broadcasting: V_sft_norm expands to match V_norm's columns
+        cos_sim = (V_norm * V_sft_norm).sum(dim=0)  # (rank,)
 
-        V_sft_norm = F.normalize(V_sft.view(-1), dim=0)
-
-        # Cosine similarity (scalar)
-        cos_sim = torch.dot(V_norm, V_sft_norm)
-
-        # Return 1 - cos_sim so that minimizing this maximizes similarity
-        return 1.0 - cos_sim
+        # Return mean of (1 - cos_sim) across all basis vectors
+        return torch.mean(1.0 - cos_sim)
 
     def compute_loss_alternating(
         self,

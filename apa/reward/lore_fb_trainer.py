@@ -170,10 +170,13 @@ class LoReFBTrainer:
         log_callback: callable | None = None,
     ) -> list[dict[str, float]]:
         """
-        Train for a specified number of iterations.
+        Train for a specified number of iterations using FULL BATCH training.
+
+        Following FB LoRe: uses ALL data in each iteration (not mini-batches).
+        This provides stable gradients and better convergence.
 
         Args:
-            dataloader: DataLoader providing batches
+            dataloader: DataLoader providing the full dataset
             n_iterations: Number of training iterations
             log_interval: Log every N iterations
             log_callback: Optional callback function called with metrics dict
@@ -181,17 +184,26 @@ class LoReFBTrainer:
         Returns:
             List of logged metrics (one per log_interval)
         """
+        # Load ALL data at once (FB approach)
+        all_emb_1 = []
+        all_emb_2 = []
+        all_user_indices = []
+        all_labels = []
+
+        for batch in dataloader:
+            all_emb_1.append(batch['response_1_embedding'])
+            all_emb_2.append(batch['response_2_embedding'])
+            all_user_indices.append(batch['user_idx'])
+            all_labels.append(batch['label'])
+
+        emb_1 = torch.cat(all_emb_1, dim=0).to(self.device)
+        emb_2 = torch.cat(all_emb_2, dim=0).to(self.device)
+        user_indices = torch.cat(all_user_indices, dim=0).to(self.device)
+        labels = torch.cat(all_labels, dim=0).to(self.device)
+
         logged_metrics = []
-        data_iter = self._cycling_iterator(dataloader)
 
         for iteration in range(n_iterations):
-            batch = next(data_iter)
-
-            emb_1 = batch['response_1_embedding'].to(self.device)
-            emb_2 = batch['response_2_embedding'].to(self.device)
-            user_indices = batch['user_idx'].to(self.device)
-            labels = batch['label'].to(self.device)
-
             metrics = self.train_iteration(
                 emb_1, emb_2, user_indices, labels,
                 iteration=iteration,
@@ -247,7 +259,7 @@ class LoReFBTrainer:
         log_callback: callable | None = None,
     ) -> list[dict[str, float]]:
         """
-        Few-shot adaptation for unseen users.
+        Few-shot adaptation for unseen users using FULL BATCH training.
 
         Freezes V and only updates W for the users in the dataloader.
         No regularization is applied during few-shot.
@@ -261,21 +273,30 @@ class LoReFBTrainer:
         Returns:
             List of logged metrics
         """
+        # Load ALL data at once (FB approach)
+        all_emb_1 = []
+        all_emb_2 = []
+        all_user_indices = []
+        all_labels = []
+
+        for batch in dataloader:
+            all_emb_1.append(batch['response_1_embedding'])
+            all_emb_2.append(batch['response_2_embedding'])
+            all_user_indices.append(batch['user_idx'])
+            all_labels.append(batch['label'])
+
+        emb_1 = torch.cat(all_emb_1, dim=0).to(self.device)
+        emb_2 = torch.cat(all_emb_2, dim=0).to(self.device)
+        user_indices = torch.cat(all_user_indices, dim=0).to(self.device)
+        labels = torch.cat(all_labels, dim=0).to(self.device)
+
         self.model.freeze_basis()
         logged_metrics = []
-        data_iter = self._cycling_iterator(dataloader)
 
         # Create optimizer for W only (fresh optimizer for few-shot)
         fewshot_optimizer = torch.optim.Adam([self.model.W], lr=self.learning_rate)
 
         for iteration in range(n_iterations):
-            batch = next(data_iter)
-
-            emb_1 = batch['response_1_embedding'].to(self.device)
-            emb_2 = batch['response_2_embedding'].to(self.device)
-            user_indices = batch['user_idx'].to(self.device)
-            labels = batch['label'].to(self.device)
-
             self.model.train()
             fewshot_optimizer.zero_grad()
 

@@ -137,33 +137,45 @@ def extract_v_sft(embeddings_path: Path, device: str) -> torch.Tensor:
     """
     Extract V_sft from the pretrained Skywork-Reward model.
 
-    This follows the FB approach of using the final linear layer weight
-    as the reference direction for regularization.
+    This follows the FB approach of finding the last linear layer in the model
+    (which is the MLP down_proj in the final transformer block) and using its
+    first column as the reference direction for regularization.
     """
     import os
-    from transformers import AutoModelForSequenceClassification
+    from transformers import AutoModel
 
     cache_dir = os.environ.get("HF_HOME", "/nas/ucb/rachel/APA/hf_cache")
     model_name = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
 
     print(f"Loading model for V_sft extraction: {model_name}")
 
-    model = AutoModelForSequenceClassification.from_pretrained(
+    # FB uses AutoModel (not AutoModelForSequenceClassification)
+    model = AutoModel.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
         device_map=device,
         cache_dir=cache_dir,
+        attn_implementation="eager",
         num_labels=1,
     )
 
-    # Extract the final linear layer weight
-    # Shape is (1, hidden_dim) for classification head
-    if hasattr(model, 'score'):
-        # For sequence classification models
-        V_sft = model.score.weight.T.float()  # (hidden_dim, 1)
-    else:
-        raise RuntimeError("Could not find score layer in model")
+    # FB approach: Find the last linear layer by iterating through modules
+    # This will be the MLP down_proj in the final transformer block
+    last_linear_layer = None
+    last_linear_name = None
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            last_linear_layer = module
+            last_linear_name = name
 
+    if last_linear_layer is None:
+        raise RuntimeError("Could not find any linear layer in model")
+
+    print(f"Found last linear layer: {last_linear_name}")
+    print(f"Layer weight shape: {last_linear_layer.weight.shape}")
+
+    # FB extraction: Take first column and reshape to (hidden_dim, 1)
+    V_sft = last_linear_layer.weight[:, 0].float().reshape(-1, 1)
     print(f"Extracted V_sft with shape: {V_sft.shape}")
 
     # Clean up model to free memory

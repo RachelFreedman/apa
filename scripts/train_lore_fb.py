@@ -9,6 +9,7 @@ This script replicates the FB LoRe training protocol exactly:
 - Produces the same accuracy vs rank plot as FB
 
 Usage:
+    python scripts/train_lore_fb.py --fb_data          # Use FB's exact data format (recommended)
     python scripts/train_lore_fb.py                    # Quick test with ranks 0,1,5
     python scripts/train_lore_fb.py --full_grid        # Full FB rank grid
     python scripts/train_lore_fb.py --n_iterations 1000  # Quick test
@@ -21,6 +22,7 @@ import json
 import os
 import sys
 import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -42,12 +44,20 @@ from apa.data.user_splits import convert_to_fb_format
 from apa.reward.lore_fb import run_regularized
 from apa.utils.embedding_utils import load_embeddings
 
+# FB data directory
+FB_DATA_DIR = Path("/nas/ucb/rachel/APA/data/prism_fb")
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Train LoRe on PRISM - FB replication",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--fb_data",
+        action="store_true",
+        help="Use FB's exact data format (from prepare_prism_fb.py and generate_prism_embeddings_fb.py)",
     )
     parser.add_argument(
         "--ranks",
@@ -70,8 +80,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--alpha",
         type=float,
-        default=0.0,
-        help="Regularization coefficient (FB uses 10000, but 0 works better on PRISM)",
+        default=10000.0,
+        help="Regularization coefficient (FB uses 10000)",
     )
     parser.add_argument(
         "--embeddings",
@@ -94,66 +104,130 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
-        help="Random seed for reproducibility",
+        default=123,
+        help="Random seed for reproducibility (FB uses 123)",
     )
     return parser.parse_args()
 
 
-def extract_v_sft(device: str, cache_dir: str | None = None) -> torch.Tensor:
+def group_embeddings_by_user(train_embeddings, test_embeddings, device):
+    """
+    Group embeddings by user and compute difference vectors.
+
+    This is FB's exact function from train_basis.py.
+
+    Args:
+        train_embeddings: List of dicts from train_embeddings.pkl
+        test_embeddings: List of dicts from test_embeddings.pkl
+        device: Torch device
+
+    Returns:
+        Tuple of (train_seen, train_unseen, test_seen, test_unseen)
+        Each is a List[Tensor] where tensor[i] has shape (n_samples_for_user_i, embed_dim)
+    """
+    def process_dataset(dataset, seen_value, split_name):
+        grouped = defaultdict(lambda: {"embeddings": []})
+        for example in dataset:
+            extra_info = example.get("extra_info", {})
+            if extra_info.get("seen") == seen_value and extra_info.get("split") == split_name:
+                user_id = extra_info.get("user_id")
+                if user_id:
+                    chosen = torch.tensor(extra_info["chosen_conv_embedding"], dtype=torch.float32, device=device)
+                    rejected = torch.tensor(extra_info["rejected_conv_embedding"], dtype=torch.float32, device=device)
+                    grouped[user_id]["embeddings"].append(chosen - rejected)
+        # Stack and sort by user_id
+        sorted_grouped = []
+        count = 0
+        for user_id in sorted(grouped.keys()):
+            count += len(grouped[user_id]["embeddings"])
+            sorted_grouped.append(
+                torch.stack(grouped[user_id]["embeddings"]))
+        print(f"  {split_name} seen={seen_value}: {count} samples from {len(sorted_grouped)} users")
+        return sorted_grouped
+
+    print("Grouping embeddings by user...")
+    train_seen = process_dataset(train_embeddings, seen_value=True, split_name="train")
+    train_unseen = process_dataset(train_embeddings, seen_value=False, split_name="train")
+    test_seen = process_dataset(test_embeddings, seen_value=True, split_name="test")
+    test_unseen = process_dataset(test_embeddings, seen_value=False, split_name="test")
+
+    return train_seen, train_unseen, test_seen, test_unseen
+
+
+def extract_v_sft(device: str, cache_dir: str | None = None, use_automodel: bool = True) -> torch.Tensor:
     """
     Extract V_sft from the pretrained Skywork-Reward model.
 
-    Uses AutoModelForSequenceClassification to get the score/reward head,
-    then extracts the weight vector as V_sft.
+    FB's approach: Uses AutoModel (not AutoModelForSequenceClassification) and
+    finds the last linear layer by iterating through named_modules.
 
     Args:
         device: Device to place tensor on
         cache_dir: HuggingFace cache directory
+        use_automodel: If True, use AutoModel (FB's approach). If False, use AutoModelForSequenceClassification.
 
     Returns:
         V_sft tensor of shape (hidden_dim, 1)
     """
-    from transformers import AutoModelForSequenceClassification
-
     if cache_dir is None:
         cache_dir = os.environ.get("HF_HOME", "/nas/ucb/rachel/APA/hf_cache")
 
     model_name = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
     print(f"Loading model for V_sft extraction: {model_name}")
 
-    rm = AutoModelForSequenceClassification.from_pretrained(
-        model_name,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-        cache_dir=cache_dir,
-        attn_implementation="eager",
-        num_labels=1,
-    )
+    if use_automodel:
+        # FB's approach: use AutoModel
+        from transformers import AutoModel
+        print("  Using AutoModel (FB's approach)")
+        rm = AutoModel.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map=device,
+            cache_dir=cache_dir,
+            attn_implementation="eager",
+            num_labels=1,
+        )
+    else:
+        # Our previous approach: use AutoModelForSequenceClassification
+        from transformers import AutoModelForSequenceClassification
+        print("  Using AutoModelForSequenceClassification")
+        rm = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map=device,
+            cache_dir=cache_dir,
+            attn_implementation="eager",
+            num_labels=1,
+        )
 
-    # Find the score layer (should be the last linear layer with this model type)
-    score_layer = None
-    score_name = None
+    # Find the last linear layer by iterating through all modules
+    last_linear_layer = None
+    last_linear_name = None
     for name, module in rm.named_modules():
         if isinstance(module, torch.nn.Linear):
-            score_layer = module
-            score_name = name
+            last_linear_layer = module
+            last_linear_name = name
 
-    if score_layer is None:
+    if last_linear_layer is None:
         raise RuntimeError("Could not find any linear layer in model")
 
-    print(f"Found score layer: {score_name}")
-    print(f"Layer weight shape: {score_layer.weight.shape}")
+    print(f"Found last linear layer: {last_linear_name}")
+    print(f"Layer weight shape: {last_linear_layer.weight.shape}")
 
-    # Extract V_sft: the score layer weight is (out_features, in_features)
-    # For reward model: (1, hidden_dim), so we need weight[0, :] reshaped to (hidden_dim, 1)
-    weight = score_layer.weight.to(torch.float32)
-    if weight.shape[0] == 1:
-        # Shape is (1, hidden_dim) - get first row and reshape
-        V_sft = weight[0, :].to(device).reshape(-1, 1)
+    weight = last_linear_layer.weight.to(torch.float32)
+
+    # Handle different layer shapes:
+    # - AutoModelForSequenceClassification score layer: shape [1, hidden_dim] -> need .T
+    # - AutoModel MLP layer: shape [hidden_dim, intermediate_size] -> take [:, 0]
+    if last_linear_name == "score":
+        # Score layer: weight has shape [num_labels, hidden_dim] = [1, 4096]
+        # We want V_sft with shape [4096, 1], so transpose
+        V_sft = weight.T.to(device)  # [4096, 1]
+        print(f"  Score layer detected, transposing weights")
     else:
-        # Shape is (hidden_dim, 1) or similar - get first column
+        # FB's approach for other layers: take first column
         V_sft = weight[:, 0].to(device).reshape(-1, 1)
+        print(f"  Non-score layer, taking first column")
 
     print(f"Extracted V_sft with shape: {V_sft.shape}")
 
@@ -226,6 +300,7 @@ def main() -> None:
     print(f"\n{'='*60}")
     print("FB LoRe Training - Replication")
     print(f"{'='*60}")
+    print(f"  FB Data Mode:      {args.fb_data}")
     print(f"  Ranks:             {K_list}")
     print(f"  Iterations:        {args.n_iterations}")
     print(f"  Alpha:             {args.alpha}")
@@ -244,28 +319,54 @@ def main() -> None:
     with open(config_path, 'w') as f:
         json.dump(vars(args), f, indent=2)
 
-    # Load embeddings
-    embeddings_path = Path(args.embeddings) if args.embeddings else dataset_config.embeddings_path
-    print(f"\nLoading embeddings from {embeddings_path}")
-    embeddings = load_embeddings(embeddings_path)
+    # Load data based on mode
+    if args.fb_data:
+        # FB's exact data format from prepare_prism_fb.py and generate_prism_embeddings_fb.py
+        train_emb_path = FB_DATA_DIR / "train_embeddings.pkl"
+        test_emb_path = FB_DATA_DIR / "test_embeddings.pkl"
 
-    # Convert to FB format
-    print("\nConverting to FB data format...")
-    fb_data = convert_to_fb_format(
-        embeddings,
-        seen_user_ratio=0.8,
-        dialog_train_ratio=0.5,
-        min_samples_per_user=6,
-        seed=args.seed,
-        device=args.device,
-    )
+        if not train_emb_path.exists() or not test_emb_path.exists():
+            print("ERROR: FB data files not found!")
+            print(f"  Expected: {train_emb_path}")
+            print(f"  Expected: {test_emb_path}")
+            print("\nPlease run these scripts first:")
+            print("  python scripts/prepare_prism_fb.py")
+            print("  python scripts/generate_prism_embeddings_fb.py")
+            sys.exit(1)
 
-    train_seen = fb_data['train_seen']
-    test_seen = fb_data['test_seen']
-    train_unseen = fb_data['train_unseen']
-    test_unseen = fb_data['test_unseen']
-    N = fb_data['n_seen']
-    N_unseen = fb_data['n_unseen']
+        print(f"\nLoading FB embeddings from {FB_DATA_DIR}")
+        train_embeddings = torch.load(train_emb_path)
+        test_embeddings = torch.load(test_emb_path)
+
+        # Group by user (FB's approach)
+        train_seen, train_unseen, test_seen, test_unseen = group_embeddings_by_user(
+            train_embeddings, test_embeddings, args.device
+        )
+        N = len(train_seen)
+        N_unseen = len(train_unseen)
+    else:
+        # Our previous approach: load from embeddings.pkl and convert
+        embeddings_path = Path(args.embeddings) if args.embeddings else dataset_config.embeddings_path
+        print(f"\nLoading embeddings from {embeddings_path}")
+        embeddings = load_embeddings(embeddings_path)
+
+        # Convert to FB format
+        print("\nConverting to FB data format...")
+        fb_data = convert_to_fb_format(
+            embeddings,
+            seen_user_ratio=0.8,
+            dialog_train_ratio=0.5,
+            min_samples_per_user=6,
+            seed=args.seed,
+            device=args.device,
+        )
+
+        train_seen = fb_data['train_seen']
+        test_seen = fb_data['test_seen']
+        train_unseen = fb_data['train_unseen']
+        test_unseen = fb_data['test_unseen']
+        N = fb_data['n_seen']
+        N_unseen = fb_data['n_unseen']
 
     # Save data statistics
     data_stats = {
@@ -280,9 +381,17 @@ def main() -> None:
     with open(output_dir / "data_stats.json", 'w') as f:
         json.dump(data_stats, f, indent=2)
 
+    print(f"\nData Statistics:")
+    print(f"  Seen users: {N}")
+    print(f"  Unseen users: {N_unseen}")
+    print(f"  Train seen samples: {data_stats['train_seen_samples']}")
+    print(f"  Test seen samples: {data_stats['test_seen_samples']}")
+
     # Extract V_sft
     print("\nExtracting V_sft from pretrained model...")
-    V_final = extract_v_sft(args.device)
+    # Always use AutoModelForSequenceClassification for V_sft extraction
+    # AutoModel finds the wrong layer (MLP.down_proj instead of score layer)
+    V_final = extract_v_sft(args.device, use_automodel=False)
 
     # Save V_sft
     torch.save(V_final, output_dir / "V_sft.pt")

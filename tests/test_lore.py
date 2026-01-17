@@ -4,7 +4,7 @@ End-to-end test for LoRe training on PRISM dataset.
 This test runs the full LoRe training pipeline with ranks 0 and 1,
 and verifies that accuracy values match expected targets within 1.5%.
 
-WARNING: This test takes approximately 20 minutes to complete.
+WARNING: This test takes approximately 12 minutes to complete.
 
 Usage:
     pytest tests/test_lore.py -v -s
@@ -209,21 +209,16 @@ class TestLoReAccuracy:
         """
         Test that LoRe training achieves expected accuracy on PRISM.
 
-        WARNING: This test will take approximately 20 minutes to complete.
+        WARNING: This test will take approximately 12 minutes to complete.
         """
-        logger.warning(
-            "\n" + "=" * 60 + "\n"
+        banner = (
+            "\n============================================================\n"
             "RUNNING FULL LORE TRAINING TEST\n"
-            "This will take approximately 20 minutes to complete.\n"
-            "=" * 60
+            "This will take approximately 12 minutes to complete.\n"
+            "============================================================"
         )
-        print(
-            "\n" + "=" * 60 + "\n"
-            "RUNNING FULL LORE TRAINING TEST\n"
-            "This will take approximately 20 minutes to complete.\n"
-            "=" * 60,
-            flush=True
-        )
+        logger.warning(banner)
+        print(banner, flush=True)
 
         results = {}
         for K in [0, 1]:

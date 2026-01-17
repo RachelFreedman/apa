@@ -1,0 +1,26 @@
+"""
+Question selection strategies for historical user training.
+"""
+
+from __future__ import annotations
+
+import random
+
+import numpy as np
+import pandas as pd
+
+
+def random_subset(
+    all_questions: pd.DataFrame,
+    n_questions: int,
+    config: dict,
+) -> pd.DataFrame:
+    """Select questions uniformly at random."""
+    seed = config.get('seed', None)
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    n_questions = min(n_questions, len(all_questions))
+    indices = random.sample(range(len(all_questions)), n_questions)
+    return all_questions.iloc[indices].reset_index(drop=True)

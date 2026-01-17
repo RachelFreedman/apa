@@ -24,9 +24,9 @@ import torch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apa.config import configure_environment, DATA_DIR
-from apa.data.prism_loader import group_embeddings_by_user
-from apa.reward.lore_model import (
+from apa.config import configure_environment, EMBEDDINGS_DIR
+from apa.load_prism import group_embeddings_by_user
+from apa.train_lore_bases import (
     LoReTrainer,
     eval_multiple,
     learn_multiple_few_shot,
@@ -57,9 +57,8 @@ TOLERANCE = 1.5
 
 def check_embeddings_exist():
     """Check if embeddings are available for testing."""
-    embeddings_dir = DATA_DIR / "prism"
-    train_path = embeddings_dir / "train_embeddings.pkl"
-    test_path = embeddings_dir / "test_embeddings.pkl"
+    train_path = EMBEDDINGS_DIR / "train.pkl"
+    test_path = EMBEDDINGS_DIR / "test.pkl"
     return train_path.exists() and test_path.exists()
 
 
@@ -68,12 +67,11 @@ def embeddings_and_model():
     """Load embeddings and reward model V_final (cached per module)."""
     configure_environment()
 
-    embeddings_dir = DATA_DIR / "prism"
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     # Load embeddings
-    train_embeddings = torch.load(embeddings_dir / "train_embeddings.pkl")
-    test_embeddings = torch.load(embeddings_dir / "test_embeddings.pkl")
+    train_embeddings = torch.load(EMBEDDINGS_DIR / "train.pkl")
+    test_embeddings = torch.load(EMBEDDINGS_DIR / "test.pkl")
 
     # Group by user
     train_seen, train_unseen, test_seen, test_unseen = group_embeddings_by_user(

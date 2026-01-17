@@ -5,7 +5,7 @@ Unit tests for LoRe reward model.
 import pytest
 import torch
 
-from apa.reward.lore_model import LoReRewardModel, LoReTrainer
+from apa.train_lore_bases import LoReRewardModel, LoReTrainer
 
 
 class TestLoReRewardModel:

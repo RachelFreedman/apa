@@ -2,7 +2,7 @@
 Centralized configuration for APA (Aggregated Preference Alignment) project.
 
 This module provides path configuration, model parameters, and inference settings.
-Paths are configured to use NAS storage for large files with symlinks in local workspace.
+Paths are configured to use NAS storage for large files.
 """
 
 from __future__ import annotations
@@ -20,8 +20,10 @@ import yaml
 
 NAS_BASE = Path("/nas/ucb/rachel/APA")
 LOCAL_BASE = Path(__file__).parent.parent
-DATA_DIR = NAS_BASE / "data"
-CHECKPOINTS_DIR = NAS_BASE / "checkpoints"
+
+# NAS paths
+EMBEDDINGS_DIR = NAS_BASE / "embeddings"
+MODELS_DIR = NAS_BASE / "models"
 HF_CACHE_DIR = NAS_BASE / "hf_cache"
 
 # Historical prefs data (already processed)
@@ -45,8 +47,8 @@ def configure_environment() -> None:
     HF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     (HF_CACHE_DIR / "sentence_transformers").mkdir(parents=True, exist_ok=True)
     (NAS_BASE / "tmp").mkdir(parents=True, exist_ok=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -67,19 +69,19 @@ class DatasetConfig:
         return HISTORICAL_PREFS_DATA / "prism" / "questions_pairwise.csv"
 
     @property
-    def embeddings_path(self) -> Path:
-        """Path to precomputed embeddings."""
-        return DATA_DIR / "prism" / "embeddings.pkl"
+    def embeddings_dir(self) -> Path:
+        """Directory for precomputed embeddings."""
+        return EMBEDDINGS_DIR
 
     @property
-    def checkpoints_dir(self) -> Path:
-        """Directory for LoRe checkpoints."""
-        return CHECKPOINTS_DIR / "prism"
+    def models_dir(self) -> Path:
+        """Directory for model checkpoints."""
+        return MODELS_DIR
 
     def ensure_dirs(self) -> None:
         """Create all necessary directories."""
-        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        (DATA_DIR / "prism").mkdir(parents=True, exist_ok=True)
+        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================

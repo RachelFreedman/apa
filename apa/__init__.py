@@ -10,4 +10,8 @@ A pipeline for democratic preference aggregation that:
 from apa.config import APAConfig, get_config, configure_environment
 
 __version__ = "0.1.0"
-__all__ = ["APAConfig", "get_config", "configure_environment"]
+__all__ = [
+    "APAConfig",
+    "get_config",
+    "configure_environment",
+]

@@ -22,7 +22,7 @@ def test_config():
         get_config,
     )
     config = get_config()
-    assert config.lore.rank == 8
+    assert config.lore.alpha == 10000.0
     print("  config: OK")
 
 

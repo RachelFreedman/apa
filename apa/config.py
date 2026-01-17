@@ -132,17 +132,39 @@ class InferenceLLMConfig:
 
 @dataclass
 class LoReConfig:
-    """Configuration for Low-rank Reward modeling."""
+    """
+    Configuration for Low-rank Reward modeling.
 
-    rank: int = 8  # Low-rank dimension K
-    alpha: float = 10000.0  # Regularization coefficient
-    learning_rate: float = 1e-4
-    epochs: int = 10
-    batch_size: int = 32
+    CRITICAL: These hyperparameters match the original LoRe paper exactly.
+    Changing them may result in performance mismatch with published results.
+
+    Performance targets (from LoRe paper):
+    | Rank | Train Acc | Seen/Unseen | Few-Shot | Unseen/Unseen |
+    |------|-----------|-------------|----------|---------------|
+    | 0    | 71.56%    | 71.56%      | 73.55%   | 71.20%        |
+    | 1    | 76.18%    | 76.59%      | 76.90%   | 76.06%        |
+    | 5    | 87.90%    | 87.75%      | 88.30%   | 87.92%        |
+    | 10   | 90.05%    | 89.76%      | 91.57%   | 91.25%        |
+    """
+
+    # Training hyperparameters (MUST match LoRe paper)
+    K_list: list[int] = field(default_factory=lambda: [0, 1])  # Start with tested ranks
+    alpha: float = 10000.0  # Regularization strength
+    num_iterations: int = 20000  # Training iterations (NOT epochs!)
+    learning_rate: float = 0.5  # CRITICAL: 0.5, NOT 1e-4
+    logits_scale: float = 100.0  # Division factor in NLL loss
+    threshold: float = 1e-2  # Dimension filtering threshold
+
+    # Few-shot personalization for unseen users
+    few_shot_iterations: int = 500
+    few_shot_lr: float = 0.5
 
     # Embedding model (Skywork-Reward for alignment with LoRe paper)
     embedding_model: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
     embedding_dim: int = 4096  # Llama 3.1 8B hidden dimension
+
+    # Logging
+    log_interval: int = 2000
 
 
 # =============================================================================

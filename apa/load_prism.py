@@ -6,21 +6,25 @@ This module provides:
 - load_prism_pairwise: Load PRISM CSV data
 - group_embeddings_by_user: Group embeddings for LoRe training
 - CheckpointManager: Long-running training state management
+- prepare_prism_data: Prepare parquet files with proper train/test splits
 - CLI for generating embeddings
 
 CLI Usage:
-    python -m apa.load_prism --split both
-    python -m apa.load_prism --split train --n_samples 100
+    uv run python -m apa.load_prism              # Prepare data and generate all embeddings
+    uv run python -m apa.load_prism --split train --n_samples 100  # Limit to train split
 """
 
 from __future__ import annotations
 
 import argparse
 import gc
+import json
 import os
+import random
 import sys
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +33,462 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+
+
+# =============================================================================
+# Data Models (from LoRe/PRISM/prepare.py)
+# =============================================================================
+
+@dataclass
+class Demographics:
+    """User demographic information from survey."""
+    self_description: str = ""
+    preference: list[str] = field(default_factory=list)
+    age: str = ""
+    gender: str = ""
+    education: str = ""
+    employment: str = ""
+    marital: str = ""
+    english_proficiency: str = ""
+
+
+@dataclass
+class UserInfo:
+    """User info with demographics and dialog IDs."""
+    user_id: str
+    dialog_ids: list[str] = field(default_factory=list)
+    demographics: Demographics = field(default_factory=Demographics)
+    system_string: str = ""
+
+
+@dataclass
+class Turn:
+    """A single turn in a dialog with chosen/rejected utterances."""
+    turn_nb: int
+    user_utterance: list[str] = field(default_factory=list)
+    chosen_utterance: list[str] = field(default_factory=list)
+    rejected_utterance: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DialogInfo:
+    """Dialog info with turns and user ID."""
+    dialog_id: str
+    user_id: str
+    turns: list[Turn] = field(default_factory=list)
+
+
+# =============================================================================
+# Logging Utility
+# =============================================================================
+
+def _log(message: str) -> None:
+    """Log a timestamped message."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}", flush=True)
+
+
+# =============================================================================
+# PRISM Data Preparation (from LoRe/PRISM/prepare.py)
+# =============================================================================
+
+def _download_prism_raw(output_dir: Path) -> tuple[Path, Path]:
+    """Download raw PRISM JSONL files from HuggingFace."""
+    from huggingface_hub import hf_hub_download
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    conv_path = output_dir / "conversations.jsonl"
+    survey_path = output_dir / "survey.jsonl"
+
+    if not conv_path.exists():
+        _log("Downloading conversations.jsonl from HuggingFace...")
+        downloaded = hf_hub_download(
+            repo_id="HannahRoseKirk/prism-alignment",
+            filename="conversations.jsonl",
+            repo_type="dataset",
+            local_dir=output_dir,
+        )
+        _log(f"Downloaded to {downloaded}")
+
+    if not survey_path.exists():
+        _log("Downloading survey.jsonl from HuggingFace...")
+        downloaded = hf_hub_download(
+            repo_id="HannahRoseKirk/prism-alignment",
+            filename="survey.jsonl",
+            repo_type="dataset",
+            local_dir=output_dir,
+        )
+        _log(f"Downloaded to {downloaded}")
+
+    return conv_path, survey_path
+
+
+def _parse_prism_data(conv_path: Path, survey_path: Path) -> tuple[dict[str, UserInfo], dict[str, DialogInfo]]:
+    """
+    Parse PRISM JSONL files into structured user and dialog data.
+
+    Returns:
+        (user_data, dialog_data) - dicts keyed by user_id and dialog_id
+    """
+    _log("Parsing PRISM survey data...")
+    user_data: dict[str, UserInfo] = {}
+
+    with open(survey_path, "r") as f:
+        for line in f:
+            entry = json.loads(line)
+            user_id = entry.get("user_id", "")
+            if not user_id:
+                continue
+
+            demographics = Demographics(
+                self_description=entry.get("self_description", ""),
+                preference=entry.get("preference", []),
+                age=entry.get("age", ""),
+                gender=entry.get("gender", ""),
+                education=entry.get("education", ""),
+                employment=entry.get("employment", ""),
+                marital=entry.get("marital", ""),
+                english_proficiency=entry.get("english_proficiency", ""),
+            )
+
+            user_data[user_id] = UserInfo(
+                user_id=user_id,
+                demographics=demographics,
+                system_string=entry.get("system_string", ""),
+            )
+
+    _log(f"Parsed {len(user_data)} users from survey")
+
+    _log("Parsing PRISM conversation data...")
+    dialog_data: dict[str, DialogInfo] = {}
+
+    with open(conv_path, "r") as f:
+        for line in f:
+            entry = json.loads(line)
+            dialog_id = entry.get("conversation_id", "")
+            user_id = entry.get("user_id", "")
+            if not dialog_id or not user_id:
+                continue
+
+            # Parse conversation history into turns
+            conv_history = entry.get("conversation_history", [])
+            turns_by_nb: dict[int, Turn] = {}
+
+            for msg in conv_history:
+                turn_nb = msg.get("turn", 0)
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if_chosen = msg.get("if_chosen", False)
+
+                if turn_nb not in turns_by_nb:
+                    turns_by_nb[turn_nb] = Turn(turn_nb=turn_nb)
+
+                turn = turns_by_nb[turn_nb]
+                if role == "user":
+                    if content not in turn.user_utterance:
+                        turn.user_utterance.append(content)
+                elif role == "model":
+                    if if_chosen:
+                        if content not in turn.chosen_utterance:
+                            turn.chosen_utterance.append(content)
+                    else:
+                        if content not in turn.rejected_utterance:
+                            turn.rejected_utterance.append(content)
+
+            # Sort turns by turn number
+            turns = [turns_by_nb[nb] for nb in sorted(turns_by_nb.keys())]
+
+            dialog_data[dialog_id] = DialogInfo(
+                dialog_id=dialog_id,
+                user_id=user_id,
+                turns=turns,
+            )
+
+            # Add dialog_id to user's dialog_ids
+            if user_id in user_data:
+                user_data[user_id].dialog_ids.append(dialog_id)
+
+    _log(f"Parsed {len(dialog_data)} dialogs from conversations")
+
+    return user_data, dialog_data
+
+
+def _split_users_and_dialogs(
+    user_data: dict[str, UserInfo],
+    seed: int = 123,
+    seen_ratio: float = 0.8,
+    train_ratio: float = 0.5,
+    min_dialogs: int = 5,
+) -> dict[str, Any]:
+    """
+    Split users 80/20 into seen/unseen, then split each user's dialogs 50/50.
+
+    Args:
+        user_data: Dict of user_id -> UserInfo
+        seed: Random seed (default 123 for reproducibility)
+        seen_ratio: Fraction of users that are "seen" (default 0.8)
+        train_ratio: Fraction of each user's dialogs for training (default 0.5)
+        min_dialogs: Minimum dialogs required per user (default 5)
+
+    Returns:
+        Dict with train_dialog_ids, test_dialog_ids, seen_user_ids, unseen_user_ids
+    """
+    _log(f"Splitting users with seed={seed}, seen_ratio={seen_ratio}, min_dialogs>{min_dialogs}")
+
+    # Filter to users with >min_dialogs
+    valid_users = [
+        uid for uid, uinfo in user_data.items()
+        if len(uinfo.dialog_ids) > min_dialogs
+    ]
+    _log(f"Users with >{min_dialogs} dialogs: {len(valid_users)}")
+
+    # Split users into seen/unseen
+    random.seed(seed)
+    random.shuffle(valid_users)
+
+    n_seen = int(len(valid_users) * seen_ratio)
+    seen_user_ids = valid_users[:n_seen]
+    unseen_user_ids = valid_users[n_seen:]
+
+    _log(f"Seen users: {len(seen_user_ids)}, Unseen users: {len(unseen_user_ids)}")
+
+    # Split dialogs per user
+    train_dialog_ids = []
+    test_dialog_ids = []
+
+    for user_id in valid_users:
+        user_dialogs = user_data[user_id].dialog_ids.copy()
+        random.shuffle(user_dialogs)
+
+        n_train = int(len(user_dialogs) * train_ratio)
+        train_dialog_ids.extend(user_dialogs[:n_train])
+        test_dialog_ids.extend(user_dialogs[n_train:])
+
+    _log(f"Train dialogs: {len(train_dialog_ids)}, Test dialogs: {len(test_dialog_ids)}")
+
+    return {
+        "train_dialog_ids": train_dialog_ids,
+        "test_dialog_ids": test_dialog_ids,
+        "seen_user_ids": seen_user_ids,
+        "unseen_user_ids": unseen_user_ids,
+    }
+
+
+def _create_comparison_dataset(
+    dialog_data: dict[str, DialogInfo],
+    split_ids: dict[str, Any],
+    split: str,  # "train" or "test"
+) -> list[dict]:
+    """
+    Create comparison dataset from dialogs for a given split.
+
+    Each row represents one turn with a chosen/rejected pair.
+    Note: Turns without rejected_utterance are kept (with empty list) to match
+    the original LoRe data format.
+    """
+    dialog_ids = split_ids[f"{split}_dialog_ids"]
+    seen_user_ids = set(split_ids["seen_user_ids"])
+
+    rows = []
+    for dialog_id in dialog_ids:
+        if dialog_id not in dialog_data:
+            continue
+
+        dialog = dialog_data[dialog_id]
+        user_id = dialog.user_id
+        is_seen = user_id in seen_user_ids
+
+        # Build conversation prompt up to each turn
+        prompt_messages = []
+        for turn in dialog.turns:
+            # Skip turns without chosen utterance (need at least a chosen response)
+            if not turn.chosen_utterance:
+                continue
+
+            # The prompt is the conversation history up to this turn
+            current_prompt = prompt_messages.copy()
+
+            # Add user utterance to prompt
+            if turn.user_utterance:
+                current_prompt.append({
+                    "content": turn.user_utterance[0],
+                    "role": "user",
+                })
+
+            # Create row for this turn
+            # Keep rejected_utterance as list (may be empty) to match LoRe format
+            row = {
+                "data_source": "prism",
+                "prompt": current_prompt,
+                "ability": "chat",
+                "reward_model": "human",
+                "extra_info": {
+                    "chosen_utterance": turn.chosen_utterance[0],
+                    "dialog_id": dialog_id,
+                    "rejected_utterance": turn.rejected_utterance,  # Keep as list for RM eval
+                    "seen": is_seen,
+                    "split": split,
+                    "total_turn_nb": len(dialog.turns),
+                    "turn_nb": turn.turn_nb,
+                    "user_id": user_id,
+                },
+            }
+            rows.append(row)
+
+            # Add chosen response to prompt for next turn
+            prompt_messages.append({
+                "content": turn.user_utterance[0] if turn.user_utterance else "",
+                "role": "user",
+            })
+            prompt_messages.append({
+                "content": turn.chosen_utterance[0],
+                "role": "assistant",
+            })
+
+    return rows
+
+
+def prepare_prism_data(
+    output_dir: Path | str | None = None,
+    raw_data_dir: Path | str | None = None,
+    seed: int = 123,
+) -> tuple[Path, Path]:
+    """
+    Prepare PRISM parquet files with proper train/test splits.
+
+    This replicates the exact logic from LoRe/PRISM/prepare.py:
+    1. Download raw JSONL from HuggingFace
+    2. Parse into structured user and dialog data
+    3. Split users 80/20 (seen/unseen) with seed=123
+    4. Filter to users with >5 dialogs
+    5. Split each user's dialogs 50/50 into train/test
+    6. Save as parquet files
+
+    Args:
+        output_dir: Directory for output files (default: NAS prism data dir)
+        raw_data_dir: Directory for raw JSONL files (optional)
+        seed: Random seed for reproducibility (default 123)
+
+    Returns:
+        (train_parquet_path, test_parquet_path)
+    """
+    from apa.config import PRISM_DATA_DIR
+
+    if output_dir is None:
+        output_dir = PRISM_DATA_DIR
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use output_dir for raw data if not specified
+    if raw_data_dir is None:
+        raw_data_dir = output_dir
+
+    raw_data_dir = Path(raw_data_dir)
+
+    _log("=" * 60)
+    _log("PRISM Data Preparation")
+    _log("=" * 60)
+    _log(f"Output directory: {output_dir}")
+    _log(f"Raw data directory: {raw_data_dir}")
+    _log(f"Seed: {seed}")
+
+    # Step 1: Download raw data if needed
+    conv_path = raw_data_dir / "conversations.jsonl"
+    survey_path = raw_data_dir / "survey.jsonl"
+
+    if not conv_path.exists() or not survey_path.exists():
+        conv_path, survey_path = _download_prism_raw(raw_data_dir)
+
+    # Step 2: Parse data
+    user_data, dialog_data = _parse_prism_data(conv_path, survey_path)
+
+    # Step 3: Split users and dialogs
+    split_ids = _split_users_and_dialogs(user_data, seed=seed)
+
+    # Save intermediate files
+    user_data_path = output_dir / "prism_data_user.json"
+    dialog_data_path = output_dir / "prism_data_dialog.json"
+    split_ids_path = output_dir / "prism_split_ids_50.json"
+
+    _log("Saving intermediate JSON files...")
+
+    # Convert dataclasses to dicts for JSON serialization
+    user_dict = {
+        uid: {
+            "user_id": u.user_id,
+            "dialog_ids": u.dialog_ids,
+            "demographics": {
+                "self_description": u.demographics.self_description,
+                "preference": u.demographics.preference,
+                "age": u.demographics.age,
+                "gender": u.demographics.gender,
+                "education": u.demographics.education,
+                "employment": u.demographics.employment,
+                "marital": u.demographics.marital,
+                "english_proficiency": u.demographics.english_proficiency,
+            },
+            "system_string": u.system_string,
+        }
+        for uid, u in user_data.items()
+    }
+
+    dialog_dict = {
+        did: {
+            "dialog_id": d.dialog_id,
+            "user_id": d.user_id,
+            "turns": [
+                {
+                    "turn_nb": t.turn_nb,
+                    "user_utterance": t.user_utterance,
+                    "chosen_utterance": t.chosen_utterance,
+                    "rejected_utterance": t.rejected_utterance,
+                }
+                for t in d.turns
+            ],
+        }
+        for did, d in dialog_data.items()
+    }
+
+    with open(user_data_path, "w") as f:
+        json.dump(user_dict, f, indent=4)
+    with open(dialog_data_path, "w") as f:
+        json.dump(dialog_dict, f, indent=4)
+    with open(split_ids_path, "w") as f:
+        json.dump(split_ids, f, indent=4)
+
+    _log(f"Saved user data to {user_data_path}")
+    _log(f"Saved dialog data to {dialog_data_path}")
+    _log(f"Saved split IDs to {split_ids_path}")
+
+    # Step 4: Create comparison datasets
+    _log("Creating train comparison dataset...")
+    train_rows = _create_comparison_dataset(dialog_data, split_ids, "train")
+    _log(f"Train dataset: {len(train_rows)} rows")
+
+    _log("Creating test comparison dataset...")
+    test_rows = _create_comparison_dataset(dialog_data, split_ids, "test")
+    _log(f"Test dataset: {len(test_rows)} rows")
+
+    # Step 5: Save as parquet
+    train_parquet = output_dir / "train.parquet"
+    test_parquet = output_dir / "test.parquet"
+
+    _log("Saving parquet files...")
+    train_df = pd.DataFrame(train_rows)
+    test_df = pd.DataFrame(test_rows)
+
+    train_df.to_parquet(train_parquet, index=False)
+    test_df.to_parquet(test_parquet, index=False)
+
+    _log(f"Saved train.parquet: {len(train_df)} rows")
+    _log(f"Saved test.parquet: {len(test_df)} rows")
+
+    _log("=" * 60)
+    _log("PRISM data preparation complete!")
+    _log("=" * 60)
+
+    return train_parquet, test_parquet
 
 
 # =============================================================================
@@ -333,11 +793,6 @@ def load_from_nas(nas_path: Path) -> Any:
 # CLI: Embedding Generation
 # =============================================================================
 
-def _log(message: str) -> None:
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}", flush=True)
-
-
 def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Path, n_samples: int | None = None) -> list[dict]:
     """Generate embeddings for the dataset (internal CLI helper)."""
     from tqdm import tqdm
@@ -434,11 +889,11 @@ def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Pa
 
 
 def main() -> None:
-    """CLI entry point for embedding generation."""
-    from apa.config import configure_environment, EMBEDDINGS_DIR, NAS_BASE
+    """CLI entry point for data preparation and embedding generation."""
+    from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR
 
     parser = argparse.ArgumentParser(
-        description="Prepare PRISM embeddings for LoRe training",
+        description="Prepare PRISM data and embeddings for LoRe training",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--n_samples", type=int, default=None, help="Limit to first N samples (for testing)")
@@ -446,12 +901,15 @@ def main() -> None:
     parser.add_argument("--model", type=str, default="Skywork/Skywork-Reward-Llama-3.1-8B-v0.2", help="Embedding model to use")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run model on")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory (uses EMBEDDINGS_DIR if not specified)")
-    parser.add_argument("--data_dir", type=str, default=None, help="Input data directory containing parquet files")
+    parser.add_argument("--data_dir", type=str, default=None, help="PRISM data directory (uses PRISM_DATA_DIR if not specified)")
     args = parser.parse_args()
 
     configure_environment()
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+    data_dir = Path(args.data_dir) if args.data_dir else PRISM_DATA_DIR
+
+    # Embedding generation mode
     _log("=" * 60)
     _log("PRISM Embedding Generation")
     _log("=" * 60)
@@ -461,11 +919,14 @@ def main() -> None:
     if args.n_samples:
         _log(f"Limiting to {args.n_samples} samples per split")
 
-    data_dir = Path(args.data_dir) if args.data_dir else NAS_BASE / "data" / "prism"
     output_dir = Path(args.output_dir) if args.output_dir else EMBEDDINGS_DIR
 
-    _log(f"Data directory: {data_dir}")
     _log(f"Output directory: {output_dir}")
+
+    # Prepare data (download raw JSONL and create parquet files)
+    train_path, test_path = prepare_prism_data(output_dir=data_dir)
+
+    _log(f"Loading PRISM data from {train_path.parent}")
 
     _log("Loading model and tokenizer...")
     from transformers import AutoModel, AutoTokenizer
@@ -494,16 +955,7 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    _log("Loading datasets...")
     from datasets import load_dataset
-
-    train_path = data_dir / "train.parquet"
-    test_path = data_dir / "test.parquet"
-
-    if not train_path.exists():
-        raise FileNotFoundError(f"Train parquet not found: {train_path}")
-    if not test_path.exists():
-        raise FileNotFoundError(f"Test parquet not found: {test_path}")
 
     if args.split in ["train", "both"]:
         _log("=" * 60)

@@ -25,6 +25,7 @@ LOCAL_BASE = Path(__file__).parent.parent
 EMBEDDINGS_DIR = NAS_BASE / "embeddings"
 MODELS_DIR = NAS_BASE / "models"
 HF_CACHE_DIR = NAS_BASE / "hf_cache"
+PRISM_DATA_DIR = NAS_BASE / "data" / "prism"
 
 # Historical prefs data (already processed)
 HISTORICAL_PREFS_DATA = Path("/nas/ucb/rachel/historical-prefs/data")

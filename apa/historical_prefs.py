@@ -460,7 +460,7 @@ def cmd_train(args) -> None:
     if args.lore_checkpoint:
         lore_path = Path(args.lore_checkpoint)
     else:
-        lore_path = MODELS_DIR / "lore_K8.pt"
+        lore_path = MODELS_DIR / "V_K8.pt"
 
     if not lore_path.exists():
         print(f"ERROR: LoRe checkpoint not found at {lore_path}")

@@ -168,7 +168,7 @@ class VoterPool:
         """Load historical user vectors from directory."""
         historical_dir = Path(historical_dir)
 
-        for path in historical_dir.glob("W_*.pt"):
+        for path in historical_dir.glob("W_C*.pt"):
             checkpoint = torch.load(path, map_location='cpu')
             user_id = checkpoint.get('user_id', path.stem)
             w = checkpoint['w']
@@ -414,7 +414,7 @@ def main() -> None:
 
     configure_environment()
 
-    lore_checkpoint = Path(args.lore_checkpoint) if args.lore_checkpoint else MODELS_DIR / "lore_K8.pt"
+    lore_checkpoint = Path(args.lore_checkpoint) if args.lore_checkpoint else MODELS_DIR / "V_K8.pt"
     prism_users = Path(args.prism_users) if args.prism_users else MODELS_DIR / "W_seen_K8.pt"
     historical_dir = Path(args.historical_dir) if args.historical_dir else MODELS_DIR
 

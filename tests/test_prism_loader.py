@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from apa.data.prism_loader import (
+from apa.load_prism import (
     get_user_column,
     get_unique_users,
     PRISMDataset,

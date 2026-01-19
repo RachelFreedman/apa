@@ -2,7 +2,7 @@
 
 A democratic preference aggregation pipeline that:
 1. Learns individual user reward models using LoRe (Low-rank Reward modeling) on PRISM
-2. Simulates "future" users via ProgressGym HistLlama models
+2. Simulates historical users via ProgressGym HistLlama models
 3. Generates diverse response slates and aggregates preferences democratically
 
 ## Quick Start
@@ -10,15 +10,10 @@ A democratic preference aggregation pipeline that:
 ```bash
 cd /home/rachel/APA
 
-# Set up environment variables (add to your .bashrc for persistence)
-export UV_CACHE_DIR=/nas/ucb/rachel/APA/uv_cache
-export TMPDIR=/nas/ucb/rachel/APA/tmp
+# Set up environment (creates .venv symlink on NAS to avoid disk quota issues)
+source setup_uv.sh
 
-# Create symlink so .venv lives on /nas (avoids disk quota issues)
-# Skip if symlink already exists
-[ -L .venv ] || (rm -rf .venv && ln -s /nas/ucb/rachel/APA/.venv .venv)
-
-# Install/sync dependencies with uv
+# Install dependencies
 uv sync
 
 # Verify installation
@@ -28,26 +23,24 @@ uv run python tests/test_imports.py
 uv run pytest tests/ -v
 ```
 
-**Note:** The home directory has limited disk quota. The symlink approach stores the virtual environment on `/nas` where there is ample space.
-
 ## Pipeline Steps
 
 ### 1. Prepare PRISM embeddings
 
 ```bash
-uv run python scripts/prepare_prism_embeddings.py
+uv run python -m apa.load_prism --split both
 
 # Or for testing with fewer samples:
-uv run python scripts/prepare_prism_embeddings.py --n_samples 1000
+uv run python -m apa.load_prism --split both --n_samples 1000
 ```
 
 ### 2. Train LoRe model
 
 ```bash
-uv run python scripts/train_lore_prism.py
+uv run python -m apa.train_lore_bases --K_list 0,1,8
 
 # Or for testing:
-uv run python scripts/train_lore_prism.py --n_users 50 --epochs 5
+uv run python -m apa.train_lore_bases --K_list 0,1 --n_users 50
 ```
 
 ### 3. Historical user vectors (optional)
@@ -55,28 +48,28 @@ uv run python scripts/train_lore_prism.py --n_users 50 --epochs 5
 #### 3a. Generate historical preferences
 
 ```bash
-uv run python scripts/generate_historical_preferences.py --century C013 --n_questions 500
-uv run python scripts/generate_historical_preferences.py --century C017 --n_questions 500
+uv run python -m apa.historical_prefs generate --century C013 --n_questions 500
+uv run python -m apa.historical_prefs generate --century C017 --n_questions 500
 ```
 
 #### 3b. Train historical user vectors
 
 ```bash
-uv run python scripts/train_historical_users.py --preferences_file /nas/ucb/rachel/APA/checkpoints/prism/historical/preferences_historical_C013.json
-uv run python scripts/train_historical_users.py --preferences_file /nas/ucb/rachel/APA/checkpoints/prism/historical/preferences_historical_C017.json
+uv run python -m apa.historical_prefs train --century C013
+uv run python -m apa.historical_prefs train --century C017
 ```
 
 ### 4. Run democratic inference
 
 ```bash
 # Single query
-uv run python scripts/run_democratic_inference.py --query "What is the meaning of life?"
+uv run python -m apa.democratic_response --query "What is the meaning of life?"
 
 # Interactive mode
-uv run python scripts/run_democratic_inference.py --interactive
+uv run python -m apa.democratic_response --interactive
 
 # With all responses shown
-uv run python scripts/run_democratic_inference.py --query "..." --show_all
+uv run python -m apa.democratic_response --query "..." --show_all
 ```
 
 ## Project Structure
@@ -84,69 +77,46 @@ uv run python scripts/run_democratic_inference.py --query "..." --show_all
 ```
 APA/
 ├── apa/
-│   ├── config.py           # Configuration and paths
-│   ├── data/               # Data loading
-│   │   └── prism_loader.py
-│   ├── reward/             # LoRe reward modeling
-│   │   └── lore_model.py
-│   ├── historical/         # Historical LLM preferences
-│   │   ├── hist_llama.py
-│   │   └── preference_gen.py
-│   ├── inference/          # Democratic inference
-│   │   ├── response_generator.py
-│   │   ├── voter.py
-│   │   └── democratic_inference.py
-│   ├── levers/             # Injection points
-│   │   ├── lever_generate.py
-│   │   ├── lever_sample.py
-│   │   ├── lever_aggregate.py
-│   │   └── lever_questions.py
-│   └── utils/
-│       ├── embedding_utils.py
-│       └── file_utils.py
-├── scripts/
-│   ├── prepare_prism_embeddings.py
-│   ├── train_lore_prism.py
-│   ├── generate_historical_preferences.py
-│   ├── train_historical_users.py
-│   └── run_democratic_inference.py
+│   ├── config.py              # Configuration and paths
+│   ├── load_prism.py          # PRISM data loading and embedding
+│   ├── train_lore_bases.py    # LoRe reward model training
+│   ├── historical_prefs.py    # Historical preference generation
+│   ├── democratic_response.py # Democratic inference pipeline
+│   └── levers/                # Modular strategy functions
+│       ├── voter_sampling.py
+│       ├── voter_aggregation.py
+│       ├── query_selection.py
+│       └── slate_generation.py
 ├── tests/
+├── setup_uv.sh
 └── pyproject.toml
 ```
 
-## Levers (Injection Points)
+## Levers (Strategy Modules)
 
-The system has four "levers" - modular functions that can be easily swapped:
+The system has four modular strategy functions that can be swapped:
 
-### 1. Response Generation (`lever_generate.py`)
-How to generate diverse responses. Default: temperature sampling.
+### 1. Response Generation (`slate_generation.py`)
+How to generate diverse responses.
 - `temperature_sampling` (default)
-- `diverse_beam` (placeholder)
-- `contrastive_decode` (placeholder)
 
-### 2. User Sampling (`lever_sample.py`)
-How to select which users vote. Default: random.
-- `random` (default)
-- `stratified`
-- `weighted`
-- `temporal_mix`
+### 2. User Sampling (`voter_sampling.py`)
+How to select which users vote.
+- `random_sampling` (default)
+- `stratified_sampling`
+- `weighted_sampling`
+- `temporal_mix_sampling`
 
-### 3. Ranking Aggregation (`lever_aggregate.py`)
-How to combine rankings. Default: Borda count.
+### 3. Ranking Aggregation (`voter_aggregation.py`)
+How to combine rankings.
 - `borda_count` (default)
 - `plurality`
 - `copeland`
 - `instant_runoff`
-- `schulze` (placeholder)
-- `kemeny_young` (placeholder)
 
-### 4. Question Selection (`lever_questions.py`)
-How to select training questions. Default: random.
+### 4. Question Selection (`query_selection.py`)
+How to select training questions.
 - `random_subset` (default)
-- `diverse_topics` (placeholder)
-- `controversial` (placeholder)
-- `high_agreement` (placeholder)
-- `temporal_relevant` (placeholder)
 
 ## Configuration
 
@@ -156,18 +126,22 @@ Default parameters in `apa/config.py`:
 |-----------|---------|-------------|
 | k_responses | 5 | Number of responses to generate |
 | m_voters | 10 | Number of users to sample for voting |
-| lore.rank | 8 | Low-rank dimension |
+| lore.K_list | [0, 1] | Low-rank dimensions to train |
 | lore.alpha | 10000 | Regularization coefficient |
-| hist_llama_size | 8B | HistLlama model size |
-| centuries | [13, 17, 19, 21] | Historical centuries to use |
+| hist_llama.size | 8B | HistLlama model size |
+| historical_centuries | [C013, C017, C019, C021] | Historical centuries to use |
 
 ## Storage
 
 Large files are stored on NAS:
-- **NAS base**: `/nas/ucb/rachel/APA/`
-- **Embeddings**: `/nas/ucb/rachel/APA/data/prism/embeddings.pkl`
-- **Checkpoints**: `/nas/ucb/rachel/APA/checkpoints/`
-- **HF cache**: `/nas/ucb/rachel/APA/hf_cache/`
+
+```
+/nas/ucb/rachel/APA/
+├── embeddings/      # PRISM embeddings (train.pkl, test.pkl)
+├── models/          # Trained models (lore_K8.pt, V_K8.pt, W_*.pt)
+├── hf_cache/        # HuggingFace model cache
+└── tmp/             # Temporary files
+```
 
 ## External Resources
 

@@ -24,15 +24,14 @@ class TestDatasetConfig:
 
         assert config.name == "prism"
         assert "prism" in str(config.questions_pairwise_path)
-        assert config.embeddings_path.suffix == ".pkl"
 
     def test_path_properties(self):
         """Test path property returns Path objects."""
         config = DatasetConfig()
 
         assert isinstance(config.questions_pairwise_path, Path)
-        assert isinstance(config.embeddings_path, Path)
-        assert isinstance(config.checkpoints_dir, Path)
+        assert isinstance(config.embeddings_dir, Path)
+        assert isinstance(config.models_dir, Path)
 
 
 class TestHistLlamaConfig:

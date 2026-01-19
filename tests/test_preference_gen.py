@@ -4,7 +4,7 @@ Unit tests for preference generation utilities.
 
 import pytest
 
-from apa.historical.preference_gen import (
+from apa.historical_prefs import (
     parse_model_response,
     preferences_to_labels,
 )

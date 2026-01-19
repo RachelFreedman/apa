@@ -1,19 +1,36 @@
 """
-Levers: Injection points for customizable behavior.
+Strategy modules for democratic inference.
 
-Each lever is a function that can be swapped out for different strategies.
-The default implementations are simple baselines that work but can be
-replaced with more sophisticated methods later.
+- voter_sampling: User sampling strategies
+- voter_aggregation: Ranking aggregation strategies
+- query_selection: Question selection strategies
+- slate_generation: Response generation strategies
 """
 
-from apa.levers.lever_generate import lever_generate_responses
-from apa.levers.lever_sample import lever_sample_users
-from apa.levers.lever_aggregate import lever_aggregate_rankings
-from apa.levers.lever_questions import lever_select_questions
+from apa.levers.voter_sampling import (
+    random_sampling,
+    stratified_sampling,
+    weighted_sampling,
+    temporal_mix_sampling,
+)
+from apa.levers.voter_aggregation import (
+    borda_count,
+    plurality,
+    copeland,
+    instant_runoff,
+)
+from apa.levers.query_selection import random_subset
+from apa.levers.slate_generation import temperature_sampling
 
 __all__ = [
-    "lever_generate_responses",
-    "lever_sample_users",
-    "lever_aggregate_rankings",
-    "lever_select_questions",
+    "random_sampling",
+    "stratified_sampling",
+    "weighted_sampling",
+    "temporal_mix_sampling",
+    "borda_count",
+    "plurality",
+    "copeland",
+    "instant_runoff",
+    "random_subset",
+    "temperature_sampling",
 ]

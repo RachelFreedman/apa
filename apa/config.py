@@ -2,7 +2,7 @@
 Centralized configuration for APA (Aggregated Preference Alignment) project.
 
 This module provides path configuration, model parameters, and inference settings.
-Paths are configured to use NAS storage for large files with symlinks in local workspace.
+Paths are configured to use NAS storage for large files.
 """
 
 from __future__ import annotations
@@ -20,9 +20,12 @@ import yaml
 
 NAS_BASE = Path("/nas/ucb/rachel/APA")
 LOCAL_BASE = Path(__file__).parent.parent
-DATA_DIR = NAS_BASE / "data"
-CHECKPOINTS_DIR = NAS_BASE / "checkpoints"
+
+# NAS paths
+EMBEDDINGS_DIR = NAS_BASE / "embeddings"
+MODELS_DIR = NAS_BASE / "models"
 HF_CACHE_DIR = NAS_BASE / "hf_cache"
+PRISM_DATA_DIR = NAS_BASE / "data" / "prism"
 
 # Historical prefs data (already processed)
 HISTORICAL_PREFS_DATA = Path("/nas/ucb/rachel/historical-prefs/data")
@@ -45,8 +48,8 @@ def configure_environment() -> None:
     HF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     (HF_CACHE_DIR / "sentence_transformers").mkdir(parents=True, exist_ok=True)
     (NAS_BASE / "tmp").mkdir(parents=True, exist_ok=True)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -67,19 +70,19 @@ class DatasetConfig:
         return HISTORICAL_PREFS_DATA / "prism" / "questions_pairwise.csv"
 
     @property
-    def embeddings_path(self) -> Path:
-        """Path to precomputed embeddings."""
-        return DATA_DIR / "prism" / "embeddings.pkl"
+    def embeddings_dir(self) -> Path:
+        """Directory for precomputed embeddings."""
+        return EMBEDDINGS_DIR
 
     @property
-    def checkpoints_dir(self) -> Path:
-        """Directory for LoRe checkpoints."""
-        return CHECKPOINTS_DIR / "prism"
+    def models_dir(self) -> Path:
+        """Directory for model checkpoints."""
+        return MODELS_DIR
 
     def ensure_dirs(self) -> None:
         """Create all necessary directories."""
-        self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-        (DATA_DIR / "prism").mkdir(parents=True, exist_ok=True)
+        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # =============================================================================
@@ -132,17 +135,39 @@ class InferenceLLMConfig:
 
 @dataclass
 class LoReConfig:
-    """Configuration for Low-rank Reward modeling."""
+    """
+    Configuration for Low-rank Reward modeling.
 
-    rank: int = 8  # Low-rank dimension K
-    alpha: float = 10000.0  # Regularization coefficient
-    learning_rate: float = 1e-4
-    epochs: int = 10
-    batch_size: int = 32
+    CRITICAL: These hyperparameters match the original LoRe paper exactly.
+    Changing them may result in performance mismatch with published results.
+
+    Performance targets (from LoRe paper):
+    | Rank | Train Acc | Seen/Unseen | Few-Shot | Unseen/Unseen |
+    |------|-----------|-------------|----------|---------------|
+    | 0    | 71.56%    | 71.56%      | 73.55%   | 71.20%        |
+    | 1    | 76.18%    | 76.59%      | 76.90%   | 76.06%        |
+    | 5    | 87.90%    | 87.75%      | 88.30%   | 87.92%        |
+    | 10   | 90.05%    | 89.76%      | 91.57%   | 91.25%        |
+    """
+
+    # Training hyperparameters (MUST match LoRe paper)
+    K_list: list[int] = field(default_factory=lambda: [0, 1])  # Start with tested ranks
+    alpha: float = 10000.0  # Regularization strength
+    num_iterations: int = 20000  # Training iterations (NOT epochs!)
+    learning_rate: float = 0.5  # CRITICAL: 0.5, NOT 1e-4
+    logits_scale: float = 100.0  # Division factor in NLL loss
+    threshold: float = 1e-2  # Dimension filtering threshold
+
+    # Few-shot personalization for unseen users
+    few_shot_iterations: int = 500
+    few_shot_lr: float = 0.5
 
     # Embedding model (Skywork-Reward for alignment with LoRe paper)
     embedding_model: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2"
     embedding_dim: int = 4096  # Llama 3.1 8B hidden dimension
+
+    # Logging
+    log_interval: int = 2000
 
 
 # =============================================================================

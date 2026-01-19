@@ -24,15 +24,14 @@ class TestDatasetConfig:
 
         assert config.name == "prism"
         assert "prism" in str(config.questions_pairwise_path)
-        assert config.embeddings_path.suffix == ".pkl"
 
     def test_path_properties(self):
         """Test path property returns Path objects."""
         config = DatasetConfig()
 
         assert isinstance(config.questions_pairwise_path, Path)
-        assert isinstance(config.embeddings_path, Path)
-        assert isinstance(config.checkpoints_dir, Path)
+        assert isinstance(config.embeddings_dir, Path)
+        assert isinstance(config.models_dir, Path)
 
 
 class TestHistLlamaConfig:
@@ -77,20 +76,24 @@ class TestLoReConfig:
         """Test default configuration values."""
         config = LoReConfig()
 
-        assert config.rank == 8
+        assert config.K_list == [0, 1]
         assert config.alpha == 10000.0
-        assert config.learning_rate == 1e-4
-        assert config.epochs == 10
-        assert config.batch_size == 32
+        assert config.num_iterations == 20000
+        assert config.learning_rate == 0.5
+        assert config.logits_scale == 100.0
+        assert config.threshold == 1e-2
+        assert config.few_shot_iterations == 500
+        assert config.few_shot_lr == 0.5
         assert config.embedding_dim == 4096
+        assert config.log_interval == 2000
 
     def test_custom_values(self):
         """Test custom configuration values."""
-        config = LoReConfig(rank=16, alpha=5000.0, epochs=20)
+        config = LoReConfig(K_list=[0, 1, 5], alpha=5000.0, num_iterations=10000)
 
-        assert config.rank == 16
+        assert config.K_list == [0, 1, 5]
         assert config.alpha == 5000.0
-        assert config.epochs == 20
+        assert config.num_iterations == 10000
 
 
 class TestInferenceConfig:
@@ -157,7 +160,7 @@ class TestAPAConfig:
         """Test saving and loading from YAML."""
         config = APAConfig()
         config.inference.k_responses = 10
-        config.lore.rank = 16
+        config.lore.alpha = 5000.0
 
         yaml_path = tmp_path / "config.yaml"
         config.to_yaml(yaml_path)
@@ -165,4 +168,4 @@ class TestAPAConfig:
         loaded = APAConfig.from_yaml(yaml_path)
 
         assert loaded.inference.k_responses == 10
-        assert loaded.lore.rank == 16
+        assert loaded.lore.alpha == 5000.0

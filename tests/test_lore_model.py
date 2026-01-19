@@ -5,7 +5,7 @@ Unit tests for LoRe reward model.
 import pytest
 import torch
 
-from apa.reward.lore_model import LoReRewardModel, LoReTrainer
+from apa.train_lore_bases import LoReRewardModel, LoReTrainer
 
 
 class TestLoReRewardModel:
@@ -13,144 +13,81 @@ class TestLoReRewardModel:
 
     def test_init(self):
         """Test model initialization."""
-        model = LoReRewardModel(embed_dim=768, rank=8, n_users=10)
+        V = torch.randn(768, 8)
+        model = LoReRewardModel(V)
 
-        assert model.embed_dim == 768
+        assert model.embedding_dim == 768
         assert model.rank == 8
-        assert model.n_users == 10
-        assert model.V.shape == (768, 8)
-        assert model.W.shape == (10, 8)
+        assert torch.equal(model.V, V)
 
-    def test_forward(self):
-        """Test forward pass."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+    def test_score_single(self):
+        """Test scoring a single embedding."""
+        V = torch.randn(32, 4)
+        model = LoReRewardModel(V)
 
-        embeddings = torch.randn(3, 32)
-        user_indices = torch.tensor([0, 1, 2])
+        embedding = torch.randn(32)
+        w = torch.randn(4)
 
-        rewards = model(embeddings, user_indices)
+        score = model.score(embedding, w)
 
-        assert rewards.shape == (3,)
-        assert rewards.dtype == torch.float32
+        # Score should be a scalar
+        assert score.shape == ()
 
-    def test_forward_batch(self):
-        """Test forward pass with larger batch."""
-        model = LoReRewardModel(embed_dim=64, rank=8, n_users=10)
+        # Verify the computation: embedding @ V @ w
+        expected = embedding @ V @ w
+        assert torch.allclose(score, expected)
+
+    def test_score_batch(self):
+        """Test scoring a batch of embeddings."""
+        V = torch.randn(64, 8)
+        model = LoReRewardModel(V)
 
         batch_size = 16
         embeddings = torch.randn(batch_size, 64)
-        user_indices = torch.randint(0, 10, (batch_size,))
+        w = torch.randn(8)
 
-        rewards = model(embeddings, user_indices)
+        scores = model.score(embeddings, w)
 
-        assert rewards.shape == (batch_size,)
+        assert scores.shape == (batch_size,)
 
-    def test_compute_preference_logits(self):
-        """Test preference logit computation."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
+    def test_rank_property(self):
+        """Test rank property."""
+        for rank in [1, 4, 8, 16]:
+            V = torch.randn(32, rank)
+            model = LoReRewardModel(V)
+            assert model.rank == rank
 
-        emb_1 = torch.randn(4, 32)
-        emb_2 = torch.randn(4, 32)
-        user_indices = torch.tensor([0, 1, 2, 3])
-
-        logits = model.compute_preference_logits(emb_1, emb_2, user_indices)
-
-        assert logits.shape == (4,)
-        # Logits should be r2 - r1
-        r1 = model(emb_1, user_indices)
-        r2 = model(emb_2, user_indices)
-        expected = r2 - r1
-        assert torch.allclose(logits, expected)
-
-    def test_compute_loss(self):
-        """Test loss computation."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        emb_1 = torch.randn(4, 32)
-        emb_2 = torch.randn(4, 32)
-        user_indices = torch.tensor([0, 1, 2, 3])
-        labels = torch.tensor([0, 1, 0, 1])
-
-        loss = model.compute_loss(emb_1, emb_2, user_indices, labels)
-
-        assert loss.shape == ()
-        assert loss.item() > 0  # Loss should be positive
-
-    def test_score_responses(self):
-        """Test scoring multiple responses for a single user."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        embeddings = torch.randn(10, 32)
-        scores = model.score_responses(embeddings, user_idx=2)
-
-        assert scores.shape == (10,)
-
-    def test_rank_responses(self):
-        """Test ranking responses for a single user."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        embeddings = torch.randn(5, 32)
-        ranking = model.rank_responses(embeddings, user_idx=0)
-
-        assert len(ranking) == 5
-        assert set(ranking) == {0, 1, 2, 3, 4}
-        # Should be sorted by score (descending)
-
-    def test_get_user_reward_function(self):
-        """Test getting a user-specific reward function."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        reward_fn = model.get_user_reward_function(user_idx=1)
-        embeddings = torch.randn(3, 32)
-
-        rewards = reward_fn(embeddings)
-
-        assert rewards.shape == (3,)
-        # Should match direct call
-        expected = model.score_responses(embeddings, user_idx=1)
-        assert torch.allclose(rewards, expected)
-
-    def test_freeze_unfreeze_basis(self):
-        """Test freezing and unfreezing the basis matrix."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        assert model.V.requires_grad is True
-
-        model.freeze_basis()
-        assert model.V.requires_grad is False
-
-        model.unfreeze_basis()
-        assert model.V.requires_grad is True
-
-    def test_add_users(self):
-        """Test adding new users to the model."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-        assert model.n_users == 5
-        assert model.W.shape == (5, 4)
-
-        model.add_users(3)
-
-        assert model.n_users == 8
-        assert model.W.shape == (8, 4)
+    def test_embedding_dim_property(self):
+        """Test embedding_dim property."""
+        for dim in [32, 64, 768, 4096]:
+            V = torch.randn(dim, 4)
+            model = LoReRewardModel(V)
+            assert model.embedding_dim == dim
 
     def test_save_load(self, tmp_path):
         """Test saving and loading model."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-
-        # Modify weights to have non-random values
-        model.V.data = torch.arange(32 * 4, dtype=torch.float32).reshape(32, 4)
-        model.W.data = torch.arange(5 * 4, dtype=torch.float32).reshape(5, 4)
+        V = torch.arange(32 * 4, dtype=torch.float32).reshape(32, 4)
+        model = LoReRewardModel(V)
 
         path = str(tmp_path / "test_model.pt")
-        model.save(path)
+        torch.save(model.V, path)
 
         loaded = LoReRewardModel.load(path)
 
-        assert loaded.embed_dim == model.embed_dim
+        assert loaded.embedding_dim == model.embedding_dim
         assert loaded.rank == model.rank
-        assert loaded.n_users == model.n_users
         assert torch.allclose(loaded.V, model.V)
-        assert torch.allclose(loaded.W, model.W)
+
+    def test_load_from_dict(self, tmp_path):
+        """Test loading from checkpoint dict with 'V' key."""
+        V = torch.randn(32, 4)
+
+        path = str(tmp_path / "test_model.pt")
+        torch.save({'V': V, 'other': 'data'}, path)
+
+        loaded = LoReRewardModel.load(path)
+
+        assert torch.allclose(loaded.V, V)
 
 
 class TestLoReTrainer:
@@ -158,43 +95,83 @@ class TestLoReTrainer:
 
     def test_init(self):
         """Test trainer initialization."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-        trainer = LoReTrainer(model, learning_rate=1e-3, device='cpu')
+        V_sft = torch.randn(32, 1)
 
-        assert trainer.model is model
-        assert trainer.device == 'cpu'
-
-    def test_train_epoch(self):
-        """Test training for one epoch."""
-        model = LoReRewardModel(embed_dim=32, rank=4, n_users=5)
-        trainer = LoReTrainer(model, learning_rate=1e-3, device='cpu')
-
-        # Create simple dataloader
-        from torch.utils.data import DataLoader, TensorDataset
-
-        n_samples = 16
-        dataset = TensorDataset(
-            torch.randn(n_samples, 32),  # emb_1
-            torch.randn(n_samples, 32),  # emb_2
-            torch.randint(0, 2, (n_samples,)),  # labels
+        trainer = LoReTrainer(
+            V_sft=V_sft,
+            alpha=10000.0,
+            num_classes=10,
+            num_features=32,
+            num_basis_vectors=4,
+            num_iterations=100,
+            learning_rate=0.5,
         )
 
-        class SimpleDataLoader:
-            def __init__(self, dataset, batch_size=4):
-                self.dataset = dataset
-                self.batch_size = batch_size
+        assert trainer.alpha == 10000.0
+        assert trainer.num_classes == 10
+        assert trainer.num_features == 32
+        assert trainer.num_basis_vectors == 4
+        assert trainer.num_iterations == 100
+        assert trainer.learning_rate == 0.5
+        assert trainer.logits_scale == 100.0
+        assert trainer.threshold == 1e-2
 
-            def __iter__(self):
-                for i in range(0, len(self.dataset), self.batch_size):
-                    batch = self.dataset[i:i+self.batch_size]
-                    yield {
-                        'response_1_embedding': batch[0],
-                        'response_2_embedding': batch[1],
-                        'label': batch[2],
-                    }
+    def test_init_custom_params(self):
+        """Test trainer initialization with custom parameters."""
+        V_sft = torch.randn(64, 1)
 
-        dataloader = SimpleDataLoader(dataset)
-        loss = trainer.train_epoch(dataloader, verbose=False)
+        trainer = LoReTrainer(
+            V_sft=V_sft,
+            alpha=5000.0,
+            num_classes=20,
+            num_features=64,
+            num_basis_vectors=8,
+            num_iterations=500,
+            learning_rate=0.1,
+            logits_scale=50.0,
+            threshold=1e-3,
+            log_interval=100,
+        )
 
-        assert isinstance(loss, float)
-        assert loss > 0
+        assert trainer.alpha == 5000.0
+        assert trainer.num_classes == 20
+        assert trainer.num_features == 64
+        assert trainer.num_basis_vectors == 8
+        assert trainer.logits_scale == 50.0
+        assert trainer.threshold == 1e-3
+        assert trainer.log_interval == 100
+
+    def test_v_sft_normalized(self):
+        """Test that V_sft is normalized during initialization."""
+        V_sft = torch.randn(32, 1) * 10  # Large magnitude
+
+        trainer = LoReTrainer(
+            V_sft=V_sft,
+            alpha=10000.0,
+            num_classes=5,
+            num_features=32,
+            num_basis_vectors=4,
+            num_iterations=100,
+            learning_rate=0.5,
+        )
+
+        # V_sft_norm should be unit norm
+        norm = torch.norm(trainer.V_sft_norm, dim=0)
+        assert torch.allclose(norm, torch.ones_like(norm), atol=1e-5)
+
+    def test_training_history_init(self):
+        """Test that training history is initialized."""
+        V_sft = torch.randn(32, 1)
+
+        trainer = LoReTrainer(
+            V_sft=V_sft,
+            alpha=10000.0,
+            num_classes=5,
+            num_features=32,
+            num_basis_vectors=4,
+            num_iterations=100,
+            learning_rate=0.5,
+        )
+
+        assert hasattr(trainer, 'training_history')
+        assert isinstance(trainer.training_history, dict)

@@ -1,26 +1,34 @@
 """
-Unit tests for strategy modules.
+Unit tests for lever modules.
 """
 
 import pytest
 import numpy as np
 import pandas as pd
 
-from apa.levers.voter_aggregation import (
+from apa.levers.lever_aggregate import (
+    lever_aggregate_rankings,
     borda_count,
     plurality,
     copeland,
     instant_runoff,
+    STRATEGIES as AGGREGATE_STRATEGIES,
 )
-from apa.levers.voter_sampling import (
+from apa.levers.lever_sample import (
+    lever_sample_users,
     random_sampling,
     stratified_sampling,
     temporal_mix_sampling,
+    STRATEGIES as SAMPLE_STRATEGIES,
 )
-from apa.levers.query_selection import random_subset
+from apa.levers.lever_questions import (
+    lever_select_questions,
+    random_subset,
+    STRATEGIES as QUESTION_STRATEGIES,
+)
 
 
-class TestVoterAggregation:
+class TestLeverAggregate:
     """Tests for ranking aggregation strategies."""
 
     def test_borda_count_basic(self):
@@ -81,8 +89,28 @@ class TestVoterAggregation:
         assert len(result) == 3
         assert set(result) == {0, 1, 2}
 
+    def test_lever_dispatch(self):
+        """Test lever dispatches to correct strategy."""
+        rankings = {'user_1': [0, 1, 2]}
 
-class TestVoterSampling:
+        result_borda = lever_aggregate_rankings(rankings, {'aggregate': 'borda_count'})
+        result_plurality = lever_aggregate_rankings(rankings, {'aggregate': 'plurality'})
+
+        assert len(result_borda) == 3
+        assert len(result_plurality) == 3
+
+    def test_lever_invalid_strategy(self):
+        """Test lever raises on invalid strategy."""
+        with pytest.raises(ValueError, match="Unknown aggregation strategy"):
+            lever_aggregate_rankings({}, {'aggregate': 'nonexistent'})
+
+    def test_strategies_registered(self):
+        """Test all expected strategies are registered."""
+        expected = {'borda_count', 'plurality', 'copeland', 'instant_runoff', 'schulze', 'kemeny_young'}
+        assert expected <= set(AGGREGATE_STRATEGIES.keys())
+
+
+class TestLeverSample:
     """Tests for user sampling strategies."""
 
     def test_random_sampling_basic(self):
@@ -94,6 +122,14 @@ class TestVoterSampling:
         assert len(result) == 3
         assert all(u in all_users for u in result)
         assert len(set(result)) == 3  # No duplicates
+
+    def test_random_sampling_larger_m(self):
+        """Test random sampling when m > available users."""
+        all_users = ['user_1', 'user_2']
+
+        result = lever_sample_users(all_users, None, 5, {'sample': 'random'})
+
+        assert len(result) == 2  # Capped at available
 
     def test_stratified_sampling_basic(self):
         """Test basic stratified sampling."""
@@ -134,8 +170,21 @@ class TestVoterSampling:
 
         assert len(result) == 4
 
+    def test_lever_dispatch(self):
+        """Test lever dispatches to correct strategy."""
+        all_users = ['u1', 'u2', 'u3']
 
-class TestQuerySelection:
+        result = lever_sample_users(all_users, None, 2, {'sample': 'random'})
+
+        assert len(result) == 2
+
+    def test_strategies_registered(self):
+        """Test all expected strategies are registered."""
+        expected = {'random', 'stratified', 'weighted', 'temporal_mix'}
+        assert expected <= set(SAMPLE_STRATEGIES.keys())
+
+
+class TestLeverQuestions:
     """Tests for question selection strategies."""
 
     def test_random_subset_basic(self):
@@ -162,13 +211,29 @@ class TestQuerySelection:
 
         assert result1['question_id'].tolist() == result2['question_id'].tolist()
 
-    def test_random_subset_caps_n(self):
-        """Test random subset caps n_questions at available."""
+    def test_lever_dispatch(self):
+        """Test lever dispatches to correct strategy."""
+        df = pd.DataFrame({
+            'question_id': range(10),
+            'prompt': [f'q{i}' for i in range(10)],
+        })
+
+        result = lever_select_questions(df, 3, {'questions': 'random_subset'})
+
+        assert len(result) == 3
+
+    def test_lever_caps_n(self):
+        """Test lever caps n_questions at available."""
         df = pd.DataFrame({
             'question_id': range(5),
             'prompt': [f'q{i}' for i in range(5)],
         })
 
-        result = random_subset(df, 100, {})
+        result = lever_select_questions(df, 100, {'questions': 'random_subset'})
 
         assert len(result) == 5
+
+    def test_strategies_registered(self):
+        """Test all expected strategies are registered."""
+        expected = {'random_subset', 'diverse_topics', 'controversial', 'high_agreement', 'temporal_relevant'}
+        assert expected <= set(QUESTION_STRATEGIES.keys())

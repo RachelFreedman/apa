@@ -5,7 +5,7 @@ Unit tests for voter module.
 import pytest
 import torch
 
-from apa.democratic_response import UserVoter, VoterPool
+from apa.inference.voter import UserVoter, VoterPool
 
 
 class TestUserVoter:

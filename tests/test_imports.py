@@ -22,116 +22,94 @@ def test_config():
         get_config,
     )
     config = get_config()
-    assert config.lore.alpha == 10000.0
+    assert config.lore.rank == 8
     print("  config: OK")
 
 
-def test_load_prism():
-    """Test load_prism module."""
-    from apa.load_prism import (
-        load_prism_pairwise,
-        PRISMDataset,
-        group_embeddings_by_user,
-        CheckpointManager,
+def test_data():
+    """Test data module."""
+    from apa.data import load_prism_pairwise, PRISMDataset
+    print("  data: OK")
+
+
+def test_reward():
+    """Test reward module."""
+    from apa.reward import LoReRewardModel
+    from apa.reward.lore_model import LoReTrainer
+    print("  reward: OK")
+
+
+def test_levers():
+    """Test levers module."""
+    from apa.levers import (
+        lever_generate_responses,
+        lever_sample_users,
+        lever_aggregate_rankings,
+        lever_select_questions,
     )
-    print("  load_prism: OK")
+    print("  levers: OK")
 
 
-def test_train_lore_bases():
-    """Test train_lore_bases module."""
-    from apa.train_lore_bases import (
-        LoReRewardModel,
-        LoReTrainer,
-        get_embedding_model,
-        embed_texts,
-    )
-    print("  train_lore_bases: OK")
-
-
-def test_historical_prefs():
-    """Test historical_prefs module."""
-    from apa.historical_prefs import (
+def test_historical():
+    """Test historical module."""
+    from apa.historical import (
         load_hist_llama,
         generate_historical_preferences,
-        parse_model_response,
-        preferences_to_labels,
     )
-    print("  historical_prefs: OK")
+    print("  historical: OK")
 
 
-def test_democratic_response():
-    """Test democratic_response module."""
-    from apa.democratic_response import (
-        DemocraticInference,
-        VoterPool,
-        UserVoter,
+def test_inference():
+    """Test inference module."""
+    from apa.inference import DemocraticInference
+    from apa.inference.response_generator import (
         generate_responses,
+        load_inference_llm,
     )
-    print("  democratic_response: OK")
+    from apa.inference.voter import UserVoter, VoterPool
+    print("  inference: OK")
 
 
-def test_voter_sampling():
-    """Test voter_sampling module."""
-    from apa.levers.voter_sampling import (
-        random_sampling,
-        stratified_sampling,
-        weighted_sampling,
-        temporal_mix_sampling,
+def test_utils():
+    """Test utils module."""
+    from apa.utils import (
+        get_embedding_model,
+        embed_text,
+        embed_texts,
+        save_with_symlink,
+        CheckpointManager,
     )
-    print("  voter_sampling: OK")
+    print("  utils: OK")
 
 
-def test_voter_aggregation():
-    """Test voter_aggregation module."""
-    from apa.levers.voter_aggregation import (
-        borda_count,
-        plurality,
-        copeland,
-        instant_runoff,
-    )
-    print("  voter_aggregation: OK")
-
-
-def test_query_selection():
-    """Test query_selection module."""
-    from apa.levers.query_selection import random_subset
-    print("  query_selection: OK")
-
-
-def test_slate_generation():
-    """Test slate_generation module."""
-    from apa.levers.slate_generation import temperature_sampling
-    print("  slate_generation: OK")
-
-
-def test_aggregation_borda():
-    """Test borda_count with sample data."""
-    from apa.levers.voter_aggregation import borda_count
+def test_lever_aggregate():
+    """Test aggregation lever with sample data."""
+    from apa.levers.lever_aggregate import lever_aggregate_rankings
 
     rankings = {
         'user_1': [0, 1, 2],
         'user_2': [1, 0, 2],
         'user_3': [0, 2, 1],
     }
-    config = {}
+    config = {'aggregate': 'borda_count'}
 
-    result = borda_count(rankings, config)
+    result = lever_aggregate_rankings(rankings, config)
     assert len(result) == 3
     assert result[0] == 0  # Response 0 should win
-    print("  aggregation_borda: OK")
+    print("  lever_aggregate: OK")
 
 
-def test_sampling_random():
-    """Test random_sampling."""
-    from apa.levers.voter_sampling import random_sampling
+def test_lever_sample():
+    """Test sampling lever."""
+    from apa.levers.lever_sample import lever_sample_users
 
     all_users = ['user_1', 'user_2', 'user_3', 'user_4', 'user_5']
-    config = {}
+    config = {'sample': 'random'}
 
-    result = random_sampling(all_users, None, 3, config)
+    result = lever_sample_users(all_users, None, 3, config)
     assert len(result) == 3
     assert all(u in all_users for u in result)
-    print("  sampling_random: OK")
+    print("  lever_sample: OK")
 
 
 def main():
@@ -141,16 +119,14 @@ def main():
 
     tests = [
         test_config,
-        test_load_prism,
-        test_train_lore_bases,
-        test_historical_prefs,
-        test_democratic_response,
-        test_voter_sampling,
-        test_voter_aggregation,
-        test_query_selection,
-        test_slate_generation,
-        test_aggregation_borda,
-        test_sampling_random,
+        test_data,
+        test_reward,
+        test_levers,
+        test_historical,
+        test_inference,
+        test_utils,
+        test_lever_aggregate,
+        test_lever_sample,
     ]
 
     passed = 0

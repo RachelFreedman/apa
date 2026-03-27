@@ -2,38 +2,144 @@
 """
 Report LoRe dataset suitability scores against green/warn/fail thresholds.
 
-Usage (as a module):
-    from apa.eval.check_suitability import report
-    report("My dataset", user_pref_embeddings, V, K=8)
+Usage:
+    python -m apa.eval.check_suitability path/to/prefs.jsonl
+    python -m apa.eval.check_suitability path/to/prefs.parquet
+
+Accepts a path to raw preference data in one of two formats:
+
+  JSONL — one JSON object per line with fields:
+      {"user_id": "u1", "prompt": "...", "chosen": "...", "rejected": "..."}
+
+  Parquet (PRISM format) — with columns including prompt (list of chat dicts)
+      and extra_info containing user_id, chosen_utterance, rejected_utterance.
+
+The script loads the reward model, embeds the preferences, loads the pretrained
+basis V, and runs all suitability metrics.
 
 Each row shows the metric value, the threshold it must clear, and a status:
   PASS  — comfortably in the green zone
   WARN  — borderline; LoRe may work but results could be unreliable
   FAIL  — likely too noisy/sparse/misaligned for LoRe to learn well
   INFO  — no hard threshold; shown for context
-
-Metrics and their null hypotheses (random data expected value):
-  label_balance       norm_consistency ≈ 1.0  for random data (threshold > 1.3)
-  krippendorff_proxy  corrected_ratio  ≈ 0.0  for random data (threshold > 0.03)
-  nn_accuracy         accuracy         ≈ 0.5  for random data (threshold > 0.55)
-  basis_coherence     corrected_ratio  ≈ 0.0  for random data (threshold > 0.03)
-  population_accuracy accuracy         ≈ 0.5  for random data (threshold > 0.55)
-  held_out_accuracy   accuracy         ≈ 0.5  for random data (threshold > 0.55)
 """
 
 from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import defaultdict
 from pathlib import Path
+
 import torch
+
 from apa.eval.suitability import (
+    PreferencePair,
     annotation_density, label_balance,
     krippendorff_alpha_proxy, nearest_neighbor_accuracy,
     basis_space_coherence, population_accuracy,
+    embed_preferences,
     fit_user_vectors, held_out_accuracy,
     user_vector_diversity, basis_utilization_entropy,
 )
 
 _G = "\033[92m"; _Y = "\033[93m"; _R = "\033[91m"; _D = "\033[2m"; _0 = "\033[0m"
 
+
+# ---------------------------------------------------------------------------
+# Load raw preferences from file
+# ---------------------------------------------------------------------------
+
+def load_prefs_jsonl(path: Path) -> dict[str, list[PreferencePair]]:
+    """Load preferences from JSONL (one JSON object per line).
+
+    Expected fields: user_id, prompt, chosen, rejected.
+    """
+    prefs: dict[str, list[PreferencePair]] = defaultdict(list)
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            prefs[obj["user_id"]].append(
+                PreferencePair(
+                    prompt=obj["prompt"],
+                    chosen=obj["chosen"],
+                    rejected=obj["rejected"],
+                )
+            )
+    return dict(prefs)
+
+
+def load_prefs_parquet(path: Path) -> dict[str, list[PreferencePair]]:
+    """Load preferences from a PRISM-format parquet file.
+
+    Expects columns: prompt (list of chat dicts), extra_info (dict with
+    user_id, chosen_utterance, rejected_utterance).
+    """
+    import pandas as pd
+
+    df = pd.read_parquet(path)
+    prefs: dict[str, list[PreferencePair]] = defaultdict(list)
+
+    for _, row in df.iterrows():
+        extra = row["extra_info"]
+        user_id = extra["user_id"]
+        chosen = extra["chosen_utterance"]
+        rejected = extra.get("rejected_utterance", "")
+
+        # rejected_utterance may be a list/array of alternatives; take first
+        if isinstance(rejected, (list, tuple)):
+            if len(rejected) == 0:
+                continue
+            rejected = rejected[0]
+        elif hasattr(rejected, '__len__') and not isinstance(rejected, str):
+            # numpy array
+            if len(rejected) == 0:
+                continue
+            rejected = str(rejected[0])
+
+        if not rejected:
+            continue
+
+        # prompt is a list/array of chat dicts, e.g. [{"role": "user", "content": "..."}]
+        prompt = row["prompt"]
+        if hasattr(prompt, '__iter__') and not isinstance(prompt, str):
+            # Extract the user's message text from chat turns
+            prompt_text = " ".join(
+                turn["content"] for turn in prompt
+                if isinstance(turn, dict) and turn.get("role") == "user"
+            )
+        else:
+            prompt_text = str(prompt)
+
+        prefs[user_id].append(
+            PreferencePair(prompt=prompt_text, chosen=chosen, rejected=rejected)
+        )
+
+    return dict(prefs)
+
+
+def load_prefs(path: Path) -> dict[str, list[PreferencePair]]:
+    """Load preferences from a file, auto-detecting format by extension."""
+    suffix = path.suffix.lower()
+    if suffix == ".jsonl":
+        return load_prefs_jsonl(path)
+    elif suffix == ".parquet":
+        return load_prefs_parquet(path)
+    elif suffix == ".json":
+        return load_prefs_jsonl(path)  # treat .json as JSONL
+    else:
+        raise ValueError(
+            f"Unsupported file format: {suffix}. Use .jsonl or .parquet."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
 
 def _status(val, green, warn=None):
     """Return (colour+label, raw) for a value given (lo, hi) green/warn ranges."""
@@ -74,56 +180,56 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
 
     # --- thresholds ---
     rows = [
-        # (tier, metric, display_value, threshold_label, val, green_range, warn_range)
-        ("T0", "annotation density",
+        # (metric, display_value, threshold_label, val, green_range, warn_range)
+        ("annotation density",
             f"{ad['median_pairs']:.0f} pairs/user",
-            "median ≥ 5",
+            "median >= 5",
             ad["median_pairs"],                (5, 1e9),   (2, 4.9)),
-        ("T1", "label balance",
+        ("label balance",
             f"{lb['mean_normalized_consistency']:.3f} norm consistency (1.0=random)",
             "> 1.3",
             lb["mean_normalized_consistency"], (1.3, 1e9), (1.1, 1.3)),
-        ("T1", "Krippendorff proxy",
+        ("Krippendorff proxy",
             f"{kap['corrected_ratio']:.4f} corrected ratio (0=random)",
             "> 0.03",
             kap["corrected_ratio"],            (0.03, 1.0), (0.01, 0.03)),
-        ("T1", "NN accuracy",
+        ("NN accuracy",
             f"{nna['mean_nn_accuracy']:.3f} mean accuracy (0.5=random)",
             "> 0.6",
             nna["mean_nn_accuracy"],           (0.6, 1.0), (0.55, 0.6)),
-        ("T3", "basis coherence",
+        ("basis coherence",
             f"{bsc['corrected_ratio']:.4f} corrected ratio (0=random)",
             "> 0.03",
             bsc["corrected_ratio"],            (0.03, 1.0), (0.01, 0.03)),
-        ("T3", "population accuracy",
+        ("population accuracy",
             f"{pa['accuracy']:.3f} held-out accuracy (0.5=random)",
             "> 0.6",
             pa["accuracy"],                    (0.6, 1.0), (0.55, 0.6)),
-        ("T5", "held-out accuracy",
+        ("held-out accuracy",
             f"{hoa['mean_accuracy']:.3f}  (n={hoa['n_users_evaluated']})",
             "> 0.6",
             hoa["mean_accuracy"],              (0.6, 1.0), (0.55, 0.6)),
     ]
 
     info_rows = [
-        ("T3", "user vec mean dist",   f"{uvd['mean_pairwise_distance']:.3f}"),
-        ("T3", "basis entropy (norm)", f"{bue['normalized_mean_entropy']:.3f}"),
+        ("user vec mean dist",   f"{uvd['mean_pairwise_distance']:.3f}"),
+        ("basis entropy (norm)", f"{bue['normalized_mean_entropy']:.3f}"),
     ]
 
     # --- print ---
     W2 = 54        # value column width
-    sep = "─" * (6 + 22 + W2 + 16 + 8)
+    sep = "─" * (24 + W2 + 16 + 8)
     print(f"\n{'─'*len(sep)}")
     print(f"  Dataset: {name}  ({len(user_pref_embeddings)} users, K={K})")
     print(sep)
-    print(f"  {'Tier':<5} {'Metric':<22} {'Value':<{W2}} {'Threshold':<16} Status")
+    print(f"  {'Metric':<22} {'Value':<{W2}} {'Threshold':<16} Status")
     print(sep)
-    for tier, metric, display, threshold, val, green, warn in rows:
+    for metric, display, threshold, val, green, warn in rows:
         status, _ = _status(val, green, warn)
-        print(f"  {tier:<5} {metric:<22} {display:<{W2}} {threshold:<16} {status}")
+        print(f"  {metric:<22} {display:<{W2}} {threshold:<16} {status}")
     print(f"  {_D}{'─'*(len(sep)-2)}{_0}")
-    for tier, metric, display in info_rows:
-        print(f"  {_D}{tier:<5} {metric:<22} {display:<{W2}} {'—':<16} INFO{_0}")
+    for metric, display in info_rows:
+        print(f"  {_D}{metric:<22} {display:<{W2}} {'—':<16} INFO{_0}")
     print(sep)
 
     return {
@@ -135,30 +241,84 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
     }
 
 
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run LoRe suitability evaluation on a preference dataset."
+    )
+    parser.add_argument(
+        "data_path",
+        type=Path,
+        help="Path to preference data (.jsonl or .parquet).",
+    )
+    parser.add_argument(
+        "--V", "--basis",
+        type=Path,
+        default=None,
+        dest="basis_path",
+        help="Path to pretrained basis V_K*.pt. Default: auto-detect from config.",
+    )
+    parser.add_argument(
+        "--K",
+        type=int,
+        default=8,
+        help="Rank of the LoRe model (default: 8).",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device for embedding model (default: cuda if available).",
+    )
+    args = parser.parse_args()
+
+    if not args.data_path.exists():
+        print(f"Error: {args.data_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+    # --- Load raw preferences ---
+    print(f"Loading preferences from {args.data_path}...", flush=True)
+    user_prefs = load_prefs(args.data_path)
+    n_users = len(user_prefs)
+    n_pairs = sum(len(v) for v in user_prefs.values())
+    print(f"  {n_users} users, {n_pairs} preference pairs", flush=True)
+
+    # --- Load model and embed ---
+    print("Loading embedding model...", flush=True)
+    from apa.train_lore_bases import get_embedding_model
+    model, tokenizer = get_embedding_model(device=device)
+
+    print("Embedding preferences...", flush=True)
+    user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer, device=device)
+
+    # Free GPU memory
+    del model
+    if device == "cuda":
+        torch.cuda.empty_cache()
+
+    # --- Load V ---
+    if args.basis_path is not None:
+        V_path = args.basis_path
+    else:
+        from apa.config import MODELS_DIR
+        V_path = MODELS_DIR / f"V_K{args.K}.pt"
+
+    if not V_path.exists():
+        print(f"Error: basis file {V_path} does not exist.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Loading basis from {V_path}...", flush=True)
+    V = torch.load(V_path, map_location="cpu", weights_only=False).float()
+
+    # --- Run report ---
+    name = args.data_path.stem
+    report(name, user_pref_embeddings, V, K=args.K)
+
+
 if __name__ == "__main__":
-    # Demo: run on three datasets (small PRISM, large PRISM, random)
-    import sys, random
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
-    from apa.config import configure_environment, EMBEDDINGS_DIR, MODELS_DIR
-    from apa.load_prism import group_embeddings_by_user
-
-    configure_environment()
-    print("Loading PRISM embeddings...", flush=True)
-    train_emb = torch.load(EMBEDDINGS_DIR / "train.pkl", weights_only=False)
-    test_emb  = torch.load(EMBEDDINGS_DIR / "test.pkl",  weights_only=False)
-    train_seen, _, _, _ = group_embeddings_by_user(train_emb, test_emb, "cpu")
-    V = torch.load(MODELS_DIR / "V_K8.pt", map_location="cpu", weights_only=False).float()
-    D, K = V.shape
-
-    rng = random.Random(0)
-    all_idx = list(range(len(train_seen)))
-    rng.shuffle(all_idx)
-
-    small  = [train_seen[i] for i in all_idx[:50]]
-    large  = [train_seen[i] for i in all_idx[:750]]
-    random_data = [torch.randn(10, D) for _ in range(200)]
-
-    report("PRISM (small, 50 users)",   small,       V, K)
-    report("PRISM (large, 750 users)",  large,       V, K)
-    report("Random data (200 users)",   random_data, V, K)
+    main()

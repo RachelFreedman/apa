@@ -418,38 +418,36 @@ so that `e @ V @ w > 0` should hold for a correct prediction.
 
 ---
 
-## Deprecated metrics
-
-The following metrics are still available in `suitability.py` for backwards
-compatibility but are **not included** in `evaluate_suitability()`:
-
-- **Effective rank** -- threshold < 1.0 is vacuous when n\_users << D
-  (Marchenko-Pastur distribution guarantees random matrices have ratio < 1.0).
-- **Silhouette score** -- K-means always finds local minima in any distribution;
-  no principled null without permutation testing.
-- **Basis activation variance** -- replaced by basis space coherence (which
-  applies the noise-corrected ICC decomposition instead of raw variance).
-- **Fit quality** -- training accuracy is always 1.0 due to overfitting
-  (underdetermined least-squares system when n\_i < D).
-
----
-
 ## Usage
+
+Run the report script on a file of raw preferences (JSONL or parquet):
+
+```bash
+python -m apa.eval.check_suitability path/to/prefs.jsonl
+python -m apa.eval.check_suitability path/to/prefs.parquet
+```
+
+The script loads the embedding model, embeds the preferences, loads the
+pretrained basis V, and prints the full suitability report.
+
+**JSONL format** -- one JSON object per line:
+
+```json
+{"user_id": "u1", "prompt": "What is 2+2?", "chosen": "4", "rejected": "5"}
+{"user_id": "u1", "prompt": "Capital of France?", "chosen": "Paris", "rejected": "London"}
+{"user_id": "u2", "prompt": "What is 2+2?", "chosen": "4", "rejected": "3"}
+```
+
+**Programmatic usage:**
 
 ```python
 from apa.eval.suitability import evaluate_suitability, embed_preferences
+from apa.train_lore_bases import get_embedding_model
 import torch
 
-# If you have raw text preferences:
+model, tokenizer = get_embedding_model()
 user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer)
 
-# If you have pre-computed embeddings (e.g. from load_prism):
 V = torch.load("models/V_K8.pt")
 results = evaluate_suitability(user_pref_embeddings, V=V)
-```
-
-Or run the report script directly:
-
-```bash
-python -m apa.eval.check_suitability
 ```

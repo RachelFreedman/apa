@@ -24,11 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from apa.eval.suitability import (
     annotation_density,
-    basis_activation_variance,
     basis_space_coherence,
     basis_utilization_entropy,
-    effective_rank,
-    fit_quality,
     fit_user_vectors,
     held_out_accuracy,
     inter_user_agreement,
@@ -36,7 +33,6 @@ from apa.eval.suitability import (
     label_balance,
     nearest_neighbor_accuracy,
     population_accuracy,
-    silhouette_score_metric,
     user_vector_diversity,
 )
 
@@ -81,7 +77,7 @@ def _make_distinct_users(n_users: int, n_pairs: int, D: int) -> list[torch.Tenso
 
 
 # ---------------------------------------------------------------------------
-# Tier 0 — annotation_density
+# annotation_density
 # ---------------------------------------------------------------------------
 
 class TestAnnotationDensity:
@@ -109,7 +105,7 @@ class TestAnnotationDensity:
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — label_balance
+# label_balance
 # ---------------------------------------------------------------------------
 
 class TestLabelBalance:
@@ -141,32 +137,7 @@ class TestLabelBalance:
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — effective_rank (deprecated but kept)
-# ---------------------------------------------------------------------------
-
-class TestEffectiveRank:
-
-    def test_low_rank_data(self):
-        true_rank = 2
-        X = _make_low_rank_users(n_users=40, n_pairs=10, D=64, true_rank=true_rank)
-        result = effective_rank(X, threshold=0.90)
-        # With noise, effective rank should still be small
-        assert result["effective_rank"] <= true_rank + 3, result["effective_rank"]
-
-    def test_full_rank_random_data(self):
-        # Random users → effective rank close to n_users
-        X = _make_random_users(n_users=20, n_pairs=10, D=64)
-        result = effective_rank(X, threshold=0.90)
-        assert result["effective_rank"] > 5
-
-    def test_compression_ratio_is_in_01(self):
-        X = _make_random_users(n_users=10, n_pairs=5, D=32)
-        result = effective_rank(X)
-        assert 0.0 <= result["compression_ratio"] <= 1.0
-
-
-# ---------------------------------------------------------------------------
-# Tier 1 — inter_user_agreement
+# inter_user_agreement
 # ---------------------------------------------------------------------------
 
 class TestInterUserAgreement:
@@ -185,7 +156,7 @@ class TestInterUserAgreement:
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — krippendorff_alpha_proxy
+# krippendorff_alpha_proxy
 # ---------------------------------------------------------------------------
 
 class TestKrippendorffProxy:
@@ -228,7 +199,7 @@ class TestKrippendorffProxy:
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — nearest_neighbor_accuracy
+# nearest_neighbor_accuracy
 # ---------------------------------------------------------------------------
 
 class TestNearestNeighborAccuracy:
@@ -261,35 +232,7 @@ class TestNearestNeighborAccuracy:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — basis_activation_variance (deprecated but kept)
-# ---------------------------------------------------------------------------
-
-class TestBasisActivationVariance:
-
-    def test_dead_bases_detected(self):
-        D, K = 32, 4
-        # V has 4 columns; data only has variance in the first direction
-        V = torch.eye(D)[:, :K]  # first K standard basis vectors
-        X = [torch.randn(10, D) * torch.tensor([1.0] + [0.0] * (D - 1))]  # only dim 0 varies
-        result = basis_activation_variance(X, V)
-        assert result["n_active_bases"] < K
-
-    def test_all_bases_active_when_data_isotropic(self):
-        D, K = 32, 4
-        V = torch.randn(D, K)
-        X = [torch.randn(100, D) for _ in range(5)]
-        result = basis_activation_variance(X, V)
-        assert result["n_active_bases"] == K
-
-    def test_fraction_active_in_01(self):
-        V = torch.randn(16, 4)
-        X = _make_random_users(5, 10, 16)
-        result = basis_activation_variance(X, V)
-        assert 0.0 <= result["fraction_active"] <= 1.0
-
-
-# ---------------------------------------------------------------------------
-# Tier 3 — basis_space_coherence
+# basis_space_coherence
 # ---------------------------------------------------------------------------
 
 class TestBasisSpaceCoherence:
@@ -321,7 +264,7 @@ class TestBasisSpaceCoherence:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — population_accuracy
+# population_accuracy
 # ---------------------------------------------------------------------------
 
 class TestPopulationAccuracy:
@@ -351,42 +294,7 @@ class TestPopulationAccuracy:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — fit_quality (deprecated but kept)
-# ---------------------------------------------------------------------------
-
-class TestFitQuality:
-
-    def test_perfect_data_gives_high_accuracy(self):
-        # All preference vectors point in the same direction as V's first column
-        D, K = 32, 4
-        V = torch.randn(D, K)
-        v0 = V[:, 0] / V[:, 0].norm()
-        # Preference embeddings aligned with v0 → all XV @ e_0 > 0
-        noise = torch.randn(20, D) * 0.01
-        X = [v0.unsqueeze(0).expand(20, -1) + noise]
-        result = fit_quality(X, V)
-        assert result["mean_accuracy"] > 0.9, result["mean_accuracy"]
-
-    def test_random_data_gives_near_chance_accuracy(self):
-        rng = torch.Generator()
-        rng.manual_seed(42)
-        D, K = 64, 8
-        V = torch.randn(D, K, generator=rng)
-        X = [torch.randn(20, D, generator=rng) for _ in range(30)]
-        result = fit_quality(X, V)
-        # Closed-form minimises MSE exactly; accuracy is bounded in [0, 1]
-        assert 0.0 <= result["mean_accuracy"] <= 1.0
-
-    def test_skips_users_with_too_few_pairs(self):
-        D, K = 16, 2
-        V = torch.randn(D, K)
-        X = [torch.randn(1, D), torch.randn(10, D)]  # first user skipped
-        result = fit_quality(X, V)
-        assert result["n_users_evaluated"] == 1
-
-
-# ---------------------------------------------------------------------------
-# Tier 3 — user_vector_diversity and basis_utilization_entropy
+# user_vector_diversity and basis_utilization_entropy
 # ---------------------------------------------------------------------------
 
 class TestUserVectorDiversity:
@@ -421,7 +329,7 @@ class TestBasisUtilizationEntropy:
 
 
 # ---------------------------------------------------------------------------
-# Tier 5 — held_out_accuracy
+# held_out_accuracy
 # ---------------------------------------------------------------------------
 
 class TestHeldOutAccuracy:
@@ -448,33 +356,6 @@ class TestHeldOutAccuracy:
         X = [torch.randn(10, 16) for _ in range(10)]
         result = held_out_accuracy(X, V)
         assert 0.0 <= result["mean_accuracy"] <= 1.0
-
-
-# ---------------------------------------------------------------------------
-# Tier 5 — silhouette_score_metric (deprecated but kept)
-# ---------------------------------------------------------------------------
-
-class TestSilhouetteScore:
-
-    def test_well_separated_clusters_give_high_score(self):
-        K = 4
-        # Two tight clusters far apart in softmax space
-        cluster_a = torch.tensor([10.0, -10.0, -10.0, -10.0]).unsqueeze(0).expand(15, -1)
-        cluster_b = torch.tensor([-10.0, 10.0, -10.0, -10.0]).unsqueeze(0).expand(15, -1)
-        W = torch.cat([cluster_a, cluster_b]) + torch.randn(30, K) * 0.1
-        result = silhouette_score_metric(W, n_clusters=2)
-        assert result["silhouette_score"] > 0.5, result["silhouette_score"]
-
-    def test_uniform_data_gives_low_score(self):
-        W = torch.randn(50, 4)  # no cluster structure
-        result = silhouette_score_metric(W, n_clusters=5)
-        # May be positive or negative, but shouldn't be very high
-        assert result["silhouette_score"] < 0.5
-
-    def test_n_clusters_capped_at_n_minus_1(self):
-        W = torch.randn(3, 4)
-        result = silhouette_score_metric(W, n_clusters=100)
-        assert result["n_clusters_used"] == 2  # capped at n-1 = 2
 
 
 # ---------------------------------------------------------------------------

@@ -22,32 +22,16 @@ Usage::
     V = torch.load("models/V_K8.pt")
     results = evaluate_suitability(user_pref_embeddings, V=V)
 
-For PRISM, pre-computed embeddings are available via group_embeddings_by_user()
-in load_prism.py — pass the result directly to evaluate_suitability().
-
-Metric tiers
-------------
-Tier 0 — raw text only (milliseconds):
+Metrics (raw text only):
     annotation_density, prompt_diversity_surface
 
-Tier 1 — embeddings required (minutes, GPU forward pass):
-    label_balance, inter_user_agreement, krippendorff_alpha_proxy
-
-Tier 1 — embeddings required (continued):
+Metrics (embeddings required):
+    label_balance, inter_user_agreement, krippendorff_alpha_proxy,
     nearest_neighbor_accuracy
 
-Tier 3 — embeddings + pretrained V required:
-    basis_space_coherence, fit_user_vectors, population_accuracy,
-    user_vector_diversity, basis_utilization_entropy
-
-Tier 5 — embeddings + V + held-out splits:
-    held_out_accuracy
-
-Deprecated (kept for backwards compatibility, not in evaluate_suitability):
-    effective_rank       — threshold vacuous when n_users << embed_dim
-    silhouette_score_metric — K-means finds clusters in any random data
-    basis_activation_variance — replaced by basis_space_coherence
-    fit_quality          — training accuracy always 1.0 due to overfitting
+Metrics (embeddings + pretrained V):
+    basis_space_coherence, population_accuracy, fit_user_vectors,
+    user_vector_diversity, basis_utilization_entropy, held_out_accuracy
 """
 
 from __future__ import annotations
@@ -70,7 +54,7 @@ PreferencePair = namedtuple("PreferencePair", ["prompt", "chosen", "rejected"])
 
 
 # ---------------------------------------------------------------------------
-# Tier 0 — raw text metrics (no model needed)
+# Raw text metrics (no model needed)
 # ---------------------------------------------------------------------------
 
 def annotation_density(
@@ -138,7 +122,7 @@ def prompt_diversity_surface(
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — embedding-based metrics (no V needed)
+# Embedding-based metrics (no V needed)
 # ---------------------------------------------------------------------------
 
 def label_balance(user_pref_embeddings: list[torch.Tensor]) -> dict:
@@ -179,47 +163,6 @@ def label_balance(user_pref_embeddings: list[torch.Tensor]) -> dict:
         "std_normalized_consistency": float(norm_arr.std()),
         "mean_raw_consistency": float(np.mean(raw_scores)),
         "per_user_normalized": norm_scores,
-    }
-
-
-def effective_rank(
-    user_pref_embeddings: list[torch.Tensor],
-    threshold: float = 0.90,
-) -> dict:
-    """
-    Estimate the effective rank of the user preference space.
-
-    Builds a [n_users, D] matrix of per-user mean preference vectors and
-    computes its SVD. The effective rank is the minimum number of components
-    needed to explain `threshold` fraction of variance.
-
-    Low effective rank means user preferences lie in a low-dimensional
-    subspace — exactly the structure LoRe assumes.
-
-    Args:
-        user_pref_embeddings: Per-user list of [n_prefs, D] tensors.
-        threshold: Cumulative variance fraction to reach (default 0.90).
-
-    Returns:
-        Dict with effective rank, singular values, and compression ratio.
-    """
-    means = torch.stack([X.float().mean(dim=0) for X in user_pref_embeddings])  # [n_users, D]
-    # Center
-    means = means - means.mean(dim=0, keepdim=True)
-    _, S, _ = torch.linalg.svd(means, full_matrices=False)
-    S = S.cpu().float()
-
-    total_var = (S ** 2).sum().item()
-    cumvar = (S ** 2).cumsum(dim=0) / (total_var + 1e-12)
-    n_components = int((cumvar < threshold).sum().item()) + 1
-    n_users = len(user_pref_embeddings)
-
-    return {
-        "effective_rank": n_components,
-        "variance_threshold": threshold,
-        "compression_ratio": n_components / max(n_users, 1),
-        "n_users": n_users,
-        "singular_values": S.tolist(),
     }
 
 
@@ -297,7 +240,7 @@ def krippendorff_alpha_proxy(user_pref_embeddings: list[torch.Tensor]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — metrics requiring pretrained V
+# Metrics requiring pretrained V
 # ---------------------------------------------------------------------------
 
 def basis_space_coherence(
@@ -400,7 +343,7 @@ def nearest_neighbor_accuracy(
 ) -> dict:
     """
     Test whether geometrically similar users actually share preferences.
-    Tier 1 metric — does not require V.
+    Does not require V.
 
     Each user's data is split in half: the first half computes means (used
     for NN lookup), the second half is scored using the NN's mean direction.
@@ -455,28 +398,6 @@ def nearest_neighbor_accuracy(
     }
 
 
-def basis_activation_variance(
-    user_pref_embeddings: list[torch.Tensor],
-    V: torch.Tensor,
-) -> dict:
-    """Deprecated: replaced by basis_space_coherence. Kept for backwards compatibility."""
-    V = V.float()
-    all_prefs = torch.cat([X.float() for X in user_pref_embeddings], dim=0)
-    activations = all_prefs @ V
-    variances = activations.var(dim=0).cpu()
-    max_var = variances.max().item()
-    epsilon = 0.01 * max_var if max_var > 0 else 1e-8
-    n_active = int((variances > epsilon).sum().item())
-    return {
-        "per_basis_variance": variances.tolist(),
-        "n_active_bases": n_active,
-        "n_total_bases": V.shape[1],
-        "fraction_active": n_active / V.shape[1],
-        "max_variance": max_var,
-        "min_variance": variances.min().item(),
-    }
-
-
 def fit_user_vectors(
     user_pref_embeddings: list[torch.Tensor],
     V: torch.Tensor,
@@ -516,57 +437,6 @@ def fit_user_vectors(
         user_ws.append(result.solution.cpu())
 
     return torch.stack(user_ws)  # [n_users, K]
-
-
-def fit_quality(
-    user_pref_embeddings: list[torch.Tensor],
-    V: torch.Tensor,
-) -> dict:
-    """
-    Measure how well closed-form user vectors explain training preferences.
-
-    For each user, computes:
-    - accuracy: fraction of pairs where (XV @ w) > 0 (correct preference direction)
-    - R²: fraction of variance in the target explained by the linear model
-
-    Users with fewer than 2 pairs are skipped.
-
-    Args:
-        user_pref_embeddings: Per-user list of [n_prefs, D] tensors.
-        V: Pretrained basis matrix [D, K].
-
-    Returns:
-        Dict with mean/std accuracy and R² across users.
-    """
-    V = V.float()
-    accuracies = []
-    r2s = []
-
-    for X in user_pref_embeddings:
-        X = X.float()
-        if len(X) < 2:
-            continue
-        XV = X @ V
-        target = torch.ones(len(XV))
-        result = torch.linalg.lstsq(XV, target)
-        w = result.solution
-        predictions = XV @ w
-
-        acc = (predictions > 0).float().mean().item()
-        accuracies.append(acc)
-
-        ss_res = ((target - predictions) ** 2).sum().item()
-        ss_tot = ((target - target.mean()) ** 2).sum().item()
-        r2 = 1.0 - ss_res / (ss_tot + 1e-12)
-        r2s.append(r2)
-
-    return {
-        "mean_accuracy": float(np.mean(accuracies)),
-        "std_accuracy": float(np.std(accuracies)),
-        "mean_r2": float(np.mean(r2s)),
-        "std_r2": float(np.std(r2s)),
-        "n_users_evaluated": len(accuracies),
-    }
 
 
 def user_vector_diversity(W: torch.Tensor) -> dict:
@@ -637,7 +507,7 @@ def basis_utilization_entropy(W: torch.Tensor) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tier 5 — metrics requiring held-out splits and/or full fitting
+# Metrics requiring held-out splits
 # ---------------------------------------------------------------------------
 
 def held_out_accuracy(
@@ -688,44 +558,6 @@ def held_out_accuracy(
         "mean_accuracy": float(np.mean(accuracies)) if accuracies else float("nan"),
         "std_accuracy": float(np.std(accuracies)) if accuracies else float("nan"),
         "n_users_evaluated": len(accuracies),
-    }
-
-
-def silhouette_score_metric(
-    W: torch.Tensor,
-    n_clusters: int | None = None,
-) -> dict:
-    """
-    Measure how cleanly fitted user vectors cluster in basis space.
-
-    A positive silhouette score means users form distinct groups in the learned
-    representation space — LoRe has separated them meaningfully. A score near
-    zero or negative means user vectors are spread uniformly or interleaved.
-
-    Args:
-        W: Raw user weight matrix [n_users, K] from fit_user_vectors().
-        n_clusters: Number of K-means clusters. Defaults to max(2, round(sqrt(n)/2)).
-
-    Returns:
-        Dict with silhouette score and the number of clusters used.
-    """
-    from sklearn.cluster import KMeans
-    from sklearn.metrics import silhouette_score
-
-    W_soft = F.softmax(W.float(), dim=1).cpu().numpy()
-    n = W_soft.shape[0]
-
-    if n_clusters is None:
-        n_clusters = max(2, round(math.sqrt(n) / 2))
-    n_clusters = min(n_clusters, n - 1)  # can't have more clusters than samples
-
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init="auto")
-    labels = kmeans.fit_predict(W_soft)
-    score = silhouette_score(W_soft, labels)
-
-    return {
-        "silhouette_score": float(score),
-        "n_clusters_used": n_clusters,
     }
 
 
@@ -793,7 +625,7 @@ def evaluate_suitability(
 
     Args:
         user_pref_embeddings: Per-user list of [n_prefs, D] tensors (required).
-        V: Pretrained LoRe basis [D, K]. If None, only Tier 0/1 metrics run.
+        V: Pretrained LoRe basis [D, K]. If None, only embedding-based metrics run.
         K: Rank value for annotation_density threshold check.
         user_prefs: Raw preference pairs (dict[user_id, list[PreferencePair]]).
                     Required only for prompt_diversity_surface.
@@ -803,26 +635,26 @@ def evaluate_suitability(
     """
     results: dict = {}
 
-    # --- Tier 0 ---
+    # --- Raw text ---
     results["annotation_density"] = annotation_density(user_pref_embeddings, K)
     if user_prefs is not None:
         results["prompt_diversity"] = prompt_diversity_surface(user_prefs)
 
-    # --- Tier 1 ---
+    # --- Embedding-based ---
     results["label_balance"] = label_balance(user_pref_embeddings)
     results["inter_user_agreement"] = inter_user_agreement(user_pref_embeddings)
     results["krippendorff_alpha_proxy"] = krippendorff_alpha_proxy(user_pref_embeddings)
     results["nearest_neighbor_accuracy"] = nearest_neighbor_accuracy(user_pref_embeddings)
 
     if V is not None:
-        # --- Tier 3 ---
+        # --- V-dependent ---
         results["basis_space_coherence"] = basis_space_coherence(user_pref_embeddings, V)
         results["population_accuracy"] = population_accuracy(user_pref_embeddings, V)
         W = fit_user_vectors(user_pref_embeddings, V)
         results["user_vector_diversity"] = user_vector_diversity(W)
         results["basis_utilization_entropy"] = basis_utilization_entropy(W)
 
-        # --- Tier 5 ---
+        # --- Held-out ---
         results["held_out_accuracy"] = held_out_accuracy(user_pref_embeddings, V)
 
     _print_summary(results, K)
@@ -854,65 +686,65 @@ def _print_summary(results: dict, K: int) -> None:
 
     ad = results["annotation_density"]
     flag = f"{_GREEN}OK{_RESET}" if not ad["warn"] else f"{_YELLOW}WARN{_RESET}"
-    rows.append(("T0", "annotation_density", f"median={ad['median_pairs']:.1f} pairs/user", flag))
+    rows.append(("annotation_density", f"median={ad['median_pairs']:.1f} pairs/user", flag))
 
     if "prompt_diversity" in results:
         pd_ = results["prompt_diversity"]
         flag = _flag(pd_["n_unique_prompts"], (10, 1e9), (1, 9))
-        rows.append(("T0", "prompt_diversity", f"n_unique={pd_['n_unique_prompts']}", flag))
+        rows.append(("prompt_diversity", f"n_unique={pd_['n_unique_prompts']}", flag))
 
     lb = results["label_balance"]
     flag = _flag(lb["mean_normalized_consistency"], (1.3, 1e9), (1.1, 1.3))
-    rows.append(("T1", "label_balance",
+    rows.append(("label_balance",
                  f"norm_consistency={lb['mean_normalized_consistency']:.2f}  (1.0=random)",
                  flag))
 
     ia = results["inter_user_agreement"]
-    rows.append(("T1", "inter_user_agreement",
+    rows.append(("inter_user_agreement",
                  f"mean_sim={ia['mean_pairwise_similarity']:.3f}", ""))
 
     kap = results["krippendorff_alpha_proxy"]
     flag = _flag(kap["corrected_ratio"], (0.03, 1.0), (0.01, 0.03))
-    rows.append(("T1", "krippendorff_proxy",
+    rows.append(("krippendorff_proxy",
                  f"corrected_ratio={kap['corrected_ratio']:.4f}  (0=random)",
                  flag))
 
     nna = results["nearest_neighbor_accuracy"]
     flag = _flag(nna["mean_nn_accuracy"], (0.6, 1.0), (0.55, 0.6))
-    rows.append(("T1", "nn_accuracy",
+    rows.append(("nn_accuracy",
                  f"acc={nna['mean_nn_accuracy']:.3f}  (0.5=random)",
                  flag))
 
     if "basis_space_coherence" in results:
         bsc = results["basis_space_coherence"]
         flag = _flag(bsc["corrected_ratio"], (0.03, 1.0), (0.01, 0.03))
-        rows.append(("T3", "basis_space_coherence",
+        rows.append(("basis_space_coherence",
                      f"corrected_ratio={bsc['corrected_ratio']:.4f}  (0=random)",
                      flag))
 
         pa = results["population_accuracy"]
         flag = _flag(pa["accuracy"], (0.6, 1.0), (0.55, 0.6))
-        rows.append(("T3", "population_accuracy",
+        rows.append(("population_accuracy",
                      f"acc={pa['accuracy']:.3f}  (0.5=random)",
                      flag))
 
         uvd = results["user_vector_diversity"]
-        rows.append(("T3", "user_vec_diversity",
+        rows.append(("user_vec_diversity",
                      f"mean_dist={uvd['mean_pairwise_distance']:.3f}", ""))
 
         bue = results["basis_utilization_entropy"]
-        rows.append(("T3", "basis_entropy",
+        rows.append(("basis_entropy",
                      f"norm_entropy={bue['normalized_mean_entropy']:.3f}", ""))
 
         hoa = results["held_out_accuracy"]
         flag = _flag(hoa["mean_accuracy"], (0.6, 1.0), (0.55, 0.6))
-        rows.append(("T5", "held_out_accuracy",
+        rows.append(("held_out_accuracy",
                      f"acc={hoa['mean_accuracy']:.3f} (n={hoa['n_users_evaluated']})",
                      flag))
 
     print("\n=== LoRe Suitability Report ===")
-    print(f"{'Tier':<5} {'Metric':<25} {'Value':<50} {'Status'}")
-    print("-" * 90)
-    for tier, metric, value, status in rows:
-        print(f"{tier:<5} {metric:<25} {value:<50} {status}")
+    print(f"{'Metric':<25} {'Value':<50} {'Status'}")
+    print("-" * 85)
+    for metric, value, status in rows:
+        print(f"{metric:<25} {value:<50} {status}")
     print()

@@ -6,12 +6,25 @@ Strategies:
 - plurality: Only count first-place votes
 - copeland: Pairwise wins/losses
 - instant_runoff: Iterative elimination (IRV)
+
+Implementations delegate to the pref_voting package.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter
 from typing import Any
+
+
+def _to_profile(rankings: dict[str, list[int]]) -> Any:
+    """Convert rankings dict to a pref_voting Profile."""
+    from pref_voting.profiles import Profile
+
+    ranking_tuples = [tuple(r) for r in rankings.values()]
+    counter = Counter(ranking_tuples)
+    unique = list(counter.keys())
+    rcounts = [counter[r] for r in unique]
+    return Profile(unique, rcounts=rcounts)
 
 
 def borda_count(rankings: dict[str, list[int]], config: dict) -> list[int]:
@@ -19,105 +32,77 @@ def borda_count(rankings: dict[str, list[int]], config: dict) -> list[int]:
     Aggregate rankings using Borda count.
 
     Each voter awards points based on position: 1st gets k-1 points, 2nd gets k-2, etc.
+    Delegates to pref_voting Profile.borda_scores().
     """
     if not rankings:
         return []
 
-    n_candidates = len(next(iter(rankings.values())))
-
-    scores = defaultdict(float)
-    for user_id, ranking in rankings.items():
-        for position, candidate in enumerate(ranking):
-            scores[candidate] += (n_candidates - 1 - position)
-
-    return sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    prof = _to_profile(rankings)
+    scores = prof.borda_scores()
+    return sorted(scores, key=lambda x: scores[x], reverse=True)
 
 
 def plurality(rankings: dict[str, list[int]], config: dict) -> list[int]:
-    """Aggregate rankings using plurality voting (only first-choice counts)."""
+    """
+    Aggregate rankings using plurality voting (only first-choice counts).
+
+    Delegates to pref_voting Profile.plurality_scores().
+    """
     if not rankings:
         return []
 
-    first_place_counts = defaultdict(int)
-    all_candidates = set()
-
-    for user_id, ranking in rankings.items():
-        if ranking:
-            first_place_counts[ranking[0]] += 1
-            all_candidates.update(ranking)
-
-    return sorted(all_candidates, key=lambda x: (first_place_counts[x], -x), reverse=True)
+    prof = _to_profile(rankings)
+    scores = prof.plurality_scores()
+    return sorted(scores, key=lambda x: (scores[x], -x), reverse=True)
 
 
 def copeland(rankings: dict[str, list[int]], config: dict) -> list[int]:
-    """Aggregate rankings using Copeland's method (pairwise wins: +1 win, -1 loss)."""
+    """
+    Aggregate rankings using Copeland's method (pairwise wins/losses).
+
+    Delegates to pref_voting Profile.copeland_scores().
+    Scoring: +1 win, +0.5 tie, 0 loss.
+    """
     if not rankings:
         return []
 
-    all_candidates = set()
-    for ranking in rankings.values():
-        all_candidates.update(ranking)
-
-    candidates = sorted(all_candidates)
-    n = len(candidates)
-
-    pairwise_wins = defaultdict(lambda: defaultdict(int))
-
-    for user_id, ranking in rankings.items():
-        pos = {c: i for i, c in enumerate(ranking)}
-        for i, c1 in enumerate(candidates):
-            for c2 in candidates[i+1:]:
-                if c1 in pos and c2 in pos:
-                    if pos[c1] < pos[c2]:
-                        pairwise_wins[c1][c2] += 1
-                    else:
-                        pairwise_wins[c2][c1] += 1
-
-    scores = defaultdict(int)
-    for i, c1 in enumerate(candidates):
-        for c2 in candidates[i+1:]:
-            wins_c1 = pairwise_wins[c1][c2]
-            wins_c2 = pairwise_wins[c2][c1]
-
-            if wins_c1 > wins_c2:
-                scores[c1] += 1
-                scores[c2] -= 1
-            elif wins_c2 > wins_c1:
-                scores[c2] += 1
-                scores[c1] -= 1
-
-    return sorted(candidates, key=lambda x: scores[x], reverse=True)
+    prof = _to_profile(rankings)
+    scores = prof.copeland_scores()
+    return sorted(scores, key=lambda x: scores[x], reverse=True)
 
 
 def instant_runoff(rankings: dict[str, list[int]], config: dict) -> list[int]:
-    """Aggregate rankings using Instant-Runoff Voting (IRV)."""
+    """
+    Aggregate rankings using Instant-Runoff Voting (IRV).
+
+    Iteratively finds the winner using pref_voting's instant_runoff, removes
+    them, and repeats to produce a full ranking. Candidate IDs are remapped to
+    0-indexed each round as required by pref_voting's Profile.
+    """
     if not rankings:
         return []
 
-    current_rankings = {k: list(v) for k, v in rankings.items()}
+    from pref_voting.profiles import Profile
+    from pref_voting.voting_methods import instant_runoff as _pref_irv
 
-    remaining = set()
-    for ranking in current_rankings.values():
-        remaining.update(ranking)
-
-    elimination_order = []
+    all_ranking_tuples = [tuple(r) for r in rankings.values()]
+    remaining = sorted(set(all_ranking_tuples[0]))
+    result = []
 
     while len(remaining) > 1:
-        first_place = defaultdict(int)
-        for ranking in current_rankings.values():
-            for candidate in ranking:
-                if candidate in remaining:
-                    first_place[candidate] += 1
-                    break
+        orig_to_local = {orig: local for local, orig in enumerate(remaining)}
+        filtered = [tuple(orig_to_local[c] for c in r if c in orig_to_local) for r in all_ranking_tuples]
+        counter = Counter(filtered)
+        unique = list(counter.keys())
+        rcounts = [counter[r] for r in unique]
+        prof = Profile(unique, rcounts=rcounts)
 
-        min_votes = min(first_place.get(c, 0) for c in remaining)
-        to_eliminate = [c for c in remaining if first_place.get(c, 0) == min_votes]
-
-        eliminated = to_eliminate[0]
-        remaining.remove(eliminated)
-        elimination_order.append(eliminated)
+        local_winner = int(_pref_irv(prof)[0])
+        original_winner = remaining[local_winner]
+        result.append(original_winner)
+        remaining.remove(original_winner)
 
     if remaining:
-        elimination_order.append(remaining.pop())
+        result.append(remaining[0])
 
-    return list(reversed(elimination_order))
+    return result

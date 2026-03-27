@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from apa.eval_suitability import (
     annotation_density,
     basis_activation_variance,
+    basis_space_coherence,
     basis_utilization_entropy,
     effective_rank,
     fit_quality,
@@ -33,6 +34,8 @@ from apa.eval_suitability import (
     inter_user_agreement,
     krippendorff_alpha_proxy,
     label_balance,
+    nearest_neighbor_accuracy,
+    population_accuracy,
     silhouette_score_metric,
     user_vector_diversity,
 )
@@ -64,6 +67,17 @@ def _make_low_rank_users(n_users: int, n_pairs: int, D: int, true_rank: int) -> 
         coeffs = torch.randn(n_pairs, true_rank)
         tensors.append(coeffs @ subspace.T + torch.randn(n_pairs, D) * 0.05)
     return tensors
+
+
+def _make_distinct_users(n_users: int, n_pairs: int, D: int) -> list[torch.Tensor]:
+    """Users with clearly distinct preference directions."""
+    users = []
+    for _ in range(n_users):
+        direction = torch.randn(D)
+        direction = direction / direction.norm()
+        noise = torch.randn(n_pairs, D) * 0.1
+        users.append(direction.unsqueeze(0).expand(n_pairs, -1).clone() + noise)
+    return users
 
 
 # ---------------------------------------------------------------------------
@@ -100,19 +114,21 @@ class TestAnnotationDensity:
 
 class TestLabelBalance:
 
-    def test_random_user_has_low_consistency(self):
-        # Random unit vectors cancel out → low mean norm / per-vector norm
+    def test_random_user_normalized_near_one(self):
+        # For random iid vectors, normalized_consistency = raw * sqrt(n) ≈ 1.0
         rng = torch.Generator()
         rng.manual_seed(0)
         X = torch.randn(500, 64, generator=rng)
-        X = X / X.norm(dim=1, keepdim=True)
         result = label_balance([X])
-        assert result["mean_consistency"] < 0.2, result["mean_consistency"]
+        nc = result["mean_normalized_consistency"]
+        assert 0.5 <= nc <= 2.0, f"normalized_consistency for random data should be ≈1, got {nc}"
 
-    def test_consistent_user_has_high_consistency(self):
+    def test_consistent_user_scores_above_random(self):
+        # Consistent user's normalized score should be well above 1.0
         X = _make_consistent_user(n_pairs=50, D=64)
         result = label_balance([X])
-        assert result["mean_consistency"] > 0.8, result["mean_consistency"]
+        nc = result["mean_normalized_consistency"]
+        assert nc > 2.0, f"consistent user should have normalized_consistency >> 1, got {nc}"
 
     def test_consistent_user_scores_higher_than_random(self):
         consistent = _make_consistent_user(50, 64)
@@ -120,12 +136,12 @@ class TestLabelBalance:
         rng.manual_seed(1)
         random_user = torch.randn(50, 64, generator=rng)
         result = label_balance([consistent, random_user])
-        per = result["per_user_consistency"]
+        per = result["per_user_normalized"]
         assert per[0] > per[1], "consistent user should score higher than random user"
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 — effective_rank
+# Tier 1 — effective_rank (deprecated but kept)
 # ---------------------------------------------------------------------------
 
 class TestEffectiveRank:
@@ -174,7 +190,7 @@ class TestInterUserAgreement:
 
 class TestKrippendorffProxy:
 
-    def test_distinct_users_have_high_ratio(self):
+    def test_distinct_users_have_positive_corrected_ratio(self):
         # Users in clearly distinct subspaces
         X = []
         for i in range(10):
@@ -182,23 +198,70 @@ class TestKrippendorffProxy:
             direction[i * 6 % 64] = 1.0
             X.append(direction.unsqueeze(0).expand(10, -1) + torch.randn(10, 64) * 0.1)
         result = krippendorff_alpha_proxy(X)
-        assert result["variance_ratio"] > 0.05
+        assert result["corrected_ratio"] > 0.01, (
+            f"corrected_ratio={result['corrected_ratio']:.4f}, expected > 0.01 for distinct users"
+        )
 
-    def test_identical_users_have_low_ratio(self):
-        # All users have the same preference direction → minimal between-user variance
+    def test_identical_users_have_near_zero_corrected_ratio(self):
+        # All users have the same preference direction → sampling noise only
         direction = torch.randn(32)
         X = [direction.unsqueeze(0).expand(8, -1).clone() for _ in range(10)]
         result = krippendorff_alpha_proxy(X)
-        assert result["variance_ratio"] < 0.05
+        assert result["corrected_ratio"] < 0.05, (
+            f"corrected_ratio={result['corrected_ratio']:.4f}, expected ≈0 for identical users"
+        )
 
-    def test_ratio_in_01(self):
+    def test_random_data_corrected_near_zero(self):
+        # Random data: corrected_ratio should be close to 0 (noise subtracted)
+        rng = torch.Generator()
+        rng.manual_seed(99)
+        X = [torch.randn(20, 32, generator=rng) for _ in range(50)]
+        result = krippendorff_alpha_proxy(X)
+        assert -0.05 <= result["corrected_ratio"] <= 0.05, (
+            f"corrected_ratio={result['corrected_ratio']:.4f} for random data should be ≈0"
+        )
+
+    def test_raw_ratio_in_01(self):
         X = _make_random_users(20, 10, 32)
         result = krippendorff_alpha_proxy(X)
-        assert 0.0 <= result["variance_ratio"] <= 1.0
+        assert 0.0 <= result["raw_ratio"] <= 1.0
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — basis_activation_variance
+# Tier 1 — nearest_neighbor_accuracy
+# ---------------------------------------------------------------------------
+
+class TestNearestNeighborAccuracy:
+
+    def test_random_data_gives_near_chance_accuracy(self):
+        rng = torch.Generator()
+        rng.manual_seed(42)
+        # Use D=512 (closer to real D=4096) to avoid NN selection bias
+        # that inflates accuracy in low-D spaces
+        X = [torch.randn(30, 512, generator=rng) for _ in range(80)]
+        result = nearest_neighbor_accuracy(X)
+        acc = result["mean_nn_accuracy"]
+        assert 0.35 <= acc <= 0.65, (
+            f"random data NN accuracy should be ≈0.5, got {acc:.3f}"
+        )
+
+    def test_structured_data_gives_above_chance_accuracy(self):
+        # Users with distinct, consistent directions: similar users share preferences
+        X = _make_distinct_users(n_users=40, n_pairs=20, D=64)
+        result = nearest_neighbor_accuracy(X)
+        acc = result["mean_nn_accuracy"]
+        assert acc > 0.55, f"structured data NN accuracy should be > 0.55, got {acc:.3f}"
+
+    def test_does_not_require_V(self):
+        # Should work with no V argument
+        X = _make_random_users(10, 5, 32)
+        result = nearest_neighbor_accuracy(X)
+        assert "mean_nn_accuracy" in result
+        assert "std_nn_accuracy" in result
+
+
+# ---------------------------------------------------------------------------
+# Tier 3 — basis_activation_variance (deprecated but kept)
 # ---------------------------------------------------------------------------
 
 class TestBasisActivationVariance:
@@ -226,7 +289,69 @@ class TestBasisActivationVariance:
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 — fit_quality
+# Tier 3 — basis_space_coherence
+# ---------------------------------------------------------------------------
+
+class TestBasisSpaceCoherence:
+
+    def test_distinct_users_have_positive_corrected_ratio(self):
+        D, K = 64, 4
+        # V aligned with distinct user directions
+        V = torch.eye(D)[:, :K]
+        X = []
+        for i in range(20):
+            direction = torch.zeros(D)
+            direction[i % K] = 1.0  # each user maps to a different basis direction
+            X.append(direction.unsqueeze(0).expand(10, -1).clone() + torch.randn(10, D) * 0.1)
+        result = basis_space_coherence(X, V)
+        assert result["corrected_ratio"] > 0.01, (
+            f"corrected_ratio={result['corrected_ratio']:.4f} for structured data"
+        )
+
+    def test_random_data_corrected_near_zero(self):
+        rng = torch.Generator()
+        rng.manual_seed(7)
+        D, K = 32, 4
+        V = torch.randn(D, K, generator=rng)
+        X = [torch.randn(20, D, generator=rng) for _ in range(50)]
+        result = basis_space_coherence(X, V)
+        assert -0.05 <= result["corrected_ratio"] <= 0.05, (
+            f"corrected_ratio={result['corrected_ratio']:.4f} for random data should be ≈0"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tier 3 — population_accuracy
+# ---------------------------------------------------------------------------
+
+class TestPopulationAccuracy:
+
+    def test_random_data_gives_near_chance_accuracy(self):
+        rng = torch.Generator()
+        rng.manual_seed(5)
+        D, K = 64, 8
+        V = torch.randn(D, K, generator=rng)
+        X = [torch.randn(20, D, generator=rng) for _ in range(50)]
+        result = population_accuracy(X, V)
+        assert 0.35 <= result["accuracy"] <= 0.65, (
+            f"random data population accuracy should be ≈0.5, got {result['accuracy']:.3f}"
+        )
+
+    def test_structured_data_gives_above_chance_accuracy(self):
+        D, K = 32, 4
+        # All users share one basis direction → pooled V captures it
+        V = torch.eye(D)[:, :K]
+        direction = V[:, 0]
+        X = [direction.unsqueeze(0).expand(20, -1).clone() + torch.randn(20, D) * 0.1
+             for _ in range(10)]
+        result = population_accuracy(X, V)
+        assert result["accuracy"] > 0.7, (
+            f"structured data population accuracy should be > 0.7, got {result['accuracy']:.3f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tier 3 — fit_quality (deprecated but kept)
 # ---------------------------------------------------------------------------
 
 class TestFitQuality:
@@ -249,8 +374,7 @@ class TestFitQuality:
         V = torch.randn(D, K, generator=rng)
         X = [torch.randn(20, D, generator=rng) for _ in range(30)]
         result = fit_quality(X, V)
-        # Random data should fit well on training data due to overfitting
-        # (closed-form minimises MSE exactly), but accuracy still bounded
+        # Closed-form minimises MSE exactly; accuracy is bounded in [0, 1]
         assert 0.0 <= result["mean_accuracy"] <= 1.0
 
     def test_skips_users_with_too_few_pairs(self):
@@ -327,7 +451,7 @@ class TestHeldOutAccuracy:
 
 
 # ---------------------------------------------------------------------------
-# Tier 5 — silhouette_score_metric
+# Tier 5 — silhouette_score_metric (deprecated but kept)
 # ---------------------------------------------------------------------------
 
 class TestSilhouetteScore:
@@ -404,38 +528,40 @@ class TestPRISMBenchmark:
         result = annotation_density(prism_data["train_seen"], K=8)
         assert result["median_pairs"] >= 5, f"median pairs too low: {result['median_pairs']}"
 
-    def test_label_balance(self, prism_data):
+    def test_label_balance_above_random(self, prism_data):
         result = label_balance(prism_data["train_seen"])
-        mc = result["mean_consistency"]
-        assert 0.05 < mc < 0.95, f"mean_consistency out of expected range: {mc}"
-
-    def test_effective_rank_is_compressible(self, prism_data):
-        result = effective_rank(prism_data["train_seen"])
-        n_users = result["n_users"]
-        er = result["effective_rank"]
-        assert er <= n_users, f"effective_rank {er} > n_users {n_users}"
-        # PRISM preferences should be far more compressible than identity
-        assert result["compression_ratio"] < 1.0, f"compression_ratio={result['compression_ratio']}"
+        nc = result["mean_normalized_consistency"]
+        assert nc > 1.3, (
+            f"mean_normalized_consistency={nc:.3f} — PRISM users should show "
+            "consistent preferences (well above 1.0 random baseline)"
+        )
 
     def test_krippendorff_proxy_users_are_distinct(self, prism_data):
         result = krippendorff_alpha_proxy(prism_data["train_seen"])
-        assert result["variance_ratio"] > 0.01, (
-            f"variance_ratio too low: {result['variance_ratio']} — "
-            "PRISM users should be distinguishable"
+        assert result["corrected_ratio"] > 0.03, (
+            f"corrected_ratio={result['corrected_ratio']:.4f} — "
+            "PRISM users should be distinguishable above noise"
         )
 
-    def test_basis_activation_variance(self, prism_data):
-        result = basis_activation_variance(prism_data["train_seen"], prism_data["V"])
-        K = result["n_total_bases"]
-        assert result["n_active_bases"] >= K // 2, (
-            f"only {result['n_active_bases']}/{K} bases active on PRISM"
+    def test_nearest_neighbor_accuracy(self, prism_data):
+        result = nearest_neighbor_accuracy(prism_data["train_seen"])
+        assert result["mean_nn_accuracy"] > 0.55, (
+            f"nn_accuracy={result['mean_nn_accuracy']:.3f} — "
+            "geometrically similar PRISM users should share preferences"
         )
 
-    def test_fit_quality(self, prism_data):
-        result = fit_quality(prism_data["train_seen"], prism_data["V"])
-        assert result["mean_accuracy"] > 0.55, (
-            f"fit_quality accuracy {result['mean_accuracy']:.3f} too low — "
-            "PRISM preferences should be linearly separable in basis space"
+    def test_basis_space_coherence(self, prism_data):
+        result = basis_space_coherence(prism_data["train_seen"], prism_data["V"])
+        assert result["corrected_ratio"] > 0.03, (
+            f"corrected_ratio={result['corrected_ratio']:.4f} — "
+            "PRISM users should cluster in basis space"
+        )
+
+    def test_population_accuracy(self, prism_data):
+        result = population_accuracy(prism_data["train_seen"], prism_data["V"])
+        assert result["accuracy"] > 0.55, (
+            f"population_accuracy={result['accuracy']:.3f} — "
+            "PRISM has shared preference signal that V should capture"
         )
 
     def test_held_out_accuracy(self, prism_data):
@@ -445,12 +571,4 @@ class TestPRISMBenchmark:
         )
         assert result["n_users_evaluated"] > 100, (
             f"too few users evaluated: {result['n_users_evaluated']}"
-        )
-
-    def test_silhouette_score_positive(self, prism_data):
-        W = fit_user_vectors(prism_data["train_seen"], prism_data["V"])
-        result = silhouette_score_metric(W)
-        assert result["silhouette_score"] > 0.0, (
-            f"silhouette_score {result['silhouette_score']:.3f} not positive — "
-            "PRISM user vectors should cluster"
         )

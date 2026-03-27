@@ -878,7 +878,7 @@ def _print_summary(results: dict, K: int) -> None:
                  flag))
 
     nna = results["nearest_neighbor_accuracy"]
-    flag = _flag(nna["mean_nn_accuracy"], (0.55, 1.0), (0.52, 0.55))
+    flag = _flag(nna["mean_nn_accuracy"], (0.6, 1.0), (0.55, 0.6))
     rows.append(("T1", "nn_accuracy",
                  f"acc={nna['mean_nn_accuracy']:.3f}  (0.5=random)",
                  flag))
@@ -891,7 +891,7 @@ def _print_summary(results: dict, K: int) -> None:
                      flag))
 
         pa = results["population_accuracy"]
-        flag = _flag(pa["accuracy"], (0.55, 1.0), (0.52, 0.55))
+        flag = _flag(pa["accuracy"], (0.6, 1.0), (0.55, 0.6))
         rows.append(("T3", "population_accuracy",
                      f"acc={pa['accuracy']:.3f}  (0.5=random)",
                      flag))
@@ -905,7 +905,7 @@ def _print_summary(results: dict, K: int) -> None:
                      f"norm_entropy={bue['normalized_mean_entropy']:.3f}", ""))
 
         hoa = results["held_out_accuracy"]
-        flag = _flag(hoa["mean_accuracy"], (0.55, 1.0), (0.52, 0.55))
+        flag = _flag(hoa["mean_accuracy"], (0.6, 1.0), (0.55, 0.6))
         rows.append(("T5", "held_out_accuracy",
                      f"acc={hoa['mean_accuracy']:.3f} (n={hoa['n_users_evaluated']})",
                      flag))

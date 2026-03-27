@@ -58,7 +58,7 @@ PreferencePair = namedtuple("PreferencePair", ["prompt", "chosen", "rejected"])
 # ---------------------------------------------------------------------------
 
 def annotation_density(
-    user_pref_embeddings: list[torch.Tensor],
+    user_pref_embeddings: list[torch.Tensor] | list[int],
     K: int,
 ) -> dict:
     """
@@ -67,13 +67,14 @@ def annotation_density(
     Rule of thumb: a user needs at least 2*K pairs to constrain a K-dimensional vector.
 
     Args:
-        user_pref_embeddings: Per-user list of [n_prefs, D] tensors.
+        user_pref_embeddings: Per-user list of [n_prefs, D] tensors, or a plain
+            list of per-user pair counts (ints).
         K: Rank (number of basis vectors) of the LoRe model.
 
     Returns:
         Dict with per-user counts and a warning flag.
     """
-    counts = [len(u) for u in user_pref_embeddings]
+    counts = [u if isinstance(u, int) else len(u) for u in user_pref_embeddings]
     median_count = float(np.median(counts))
     fraction_below = float(np.mean([c < 2 * K for c in counts]))
     return {
@@ -178,11 +179,21 @@ def inter_user_agreement(user_pref_embeddings: list[torch.Tensor]) -> dict:
     Returns:
         Dict with off-diagonal similarity statistics and clustering proxy.
     """
+    n = len(user_pref_embeddings)
+    if n < 2:
+        return {
+            "mean_pairwise_similarity": float("nan"),
+            "std_pairwise_similarity": float("nan"),
+            "min_pairwise_similarity": float("nan"),
+            "max_pairwise_similarity": float("nan"),
+            "fraction_high_agreement": float("nan"),
+            "n_users": n,
+        }
+
     means = torch.stack([X.float().mean(dim=0) for X in user_pref_embeddings])
     means_norm = F.normalize(means, dim=1)
     sim = means_norm @ means_norm.T  # [n_users, n_users]
 
-    n = len(user_pref_embeddings)
     mask = ~torch.eye(n, dtype=torch.bool)
     off_diag = sim[mask].cpu().numpy()
 
@@ -327,13 +338,14 @@ def population_accuracy(
     X_train, X_test = all_X[idx[:-n_test]], all_X[idx[-n_test:]]
 
     XV_train = X_train @ V
-    w = torch.linalg.lstsq(XV_train, torch.ones(len(XV_train))).solution
+    w = torch.linalg.lstsq(XV_train, torch.ones(len(XV_train), device=XV_train.device)).solution
 
     accuracy = (X_test @ V @ w > 0).float().mean().item()
     return {
         "accuracy": accuracy,      # ~0.5 for random/misaligned, >0.55 for good domain fit
         "n_train": len(X_train),
         "n_test": n_test,
+        "warn": n_test < 5,
     }
 
 
@@ -363,6 +375,14 @@ def nearest_neighbor_accuracy(
     Returns:
         Dict with mean/std nearest-neighbour accuracy.
     """
+    n_users = len(user_pref_embeddings)
+    if n_users < 2:
+        return {
+            "mean_nn_accuracy": float("nan"),
+            "std_nn_accuracy": float("nan"),
+            "n_users": n_users,
+        }
+
     rng = torch.Generator()
     rng.manual_seed(seed)
 
@@ -431,7 +451,7 @@ def fit_user_vectors(
             user_ws.append(torch.zeros(K))
             continue
         XV = X @ V  # [n_prefs, K]
-        target = torch.ones(len(XV))
+        target = torch.ones(len(XV), device=XV.device)
         # Closed-form least squares: w = (XV^T XV)^{-1} XV^T 1
         result = torch.linalg.lstsq(XV, target)
         user_ws.append(result.solution.cpu())
@@ -514,13 +534,14 @@ def held_out_accuracy(
     user_pref_embeddings: list[torch.Tensor],
     V: torch.Tensor,
     test_frac: float = 0.2,
+    seed: int = 0,
 ) -> dict:
     """
     Cross-validate closed-form user vector fitting against held-out preferences.
 
-    For each user, holds out the last `test_frac` fraction of pairs, fits a
-    user vector on the rest, and evaluates accuracy on the held-out pairs.
-    Users with fewer than 4 pairs are skipped (need at least 1 train + 1 test).
+    For each user, randomly holds out `test_frac` of pairs, fits a user vector
+    on the rest, and evaluates accuracy on the held-out pairs.  Users with
+    fewer than 4 pairs are skipped (need at least 1 train + 1 test).
 
     This is the most faithful fast proxy for what LoRe will achieve in
     production few-shot adaptation.
@@ -529,11 +550,14 @@ def held_out_accuracy(
         user_pref_embeddings: Per-user list of [n_prefs, D] tensors.
         V: Pretrained basis matrix [D, K].
         test_frac: Fraction of pairs to hold out for evaluation (default 0.2).
+        seed: RNG seed for the shuffle.
 
     Returns:
         Dict with mean/std held-out accuracy and number of users evaluated.
     """
     V = V.float()
+    rng = torch.Generator()
+    rng.manual_seed(seed)
     accuracies = []
 
     for X in user_pref_embeddings:
@@ -541,12 +565,14 @@ def held_out_accuracy(
         n = len(X)
         if n < 4:
             continue
+        idx = torch.randperm(n, generator=rng)
+        X = X[idx]
         n_test = max(1, int(n * test_frac))
         n_train = n - n_test
         X_train, X_test = X[:n_train], X[n_train:]
 
         XV_train = X_train @ V
-        target_train = torch.ones(n_train)
+        target_train = torch.ones(n_train, device=XV_train.device)
         result = torch.linalg.lstsq(XV_train, target_train)
         w = result.solution
 
@@ -657,94 +683,4 @@ def evaluate_suitability(
         # --- Held-out ---
         results["held_out_accuracy"] = held_out_accuracy(user_pref_embeddings, V)
 
-    _print_summary(results, K)
     return results
-
-
-# ---------------------------------------------------------------------------
-# Summary display
-# ---------------------------------------------------------------------------
-
-_GREEN = "\033[92m"
-_YELLOW = "\033[93m"
-_RED = "\033[91m"
-_RESET = "\033[0m"
-
-
-def _flag(value: float, green_range: tuple, yellow_range: tuple) -> str:
-    lo_g, hi_g = green_range
-    lo_y, hi_y = yellow_range
-    if lo_g <= value <= hi_g:
-        return f"{_GREEN}OK{_RESET}"
-    elif lo_y <= value <= hi_y:
-        return f"{_YELLOW}WARN{_RESET}"
-    return f"{_RED}FAIL{_RESET}"
-
-
-def _print_summary(results: dict, K: int) -> None:
-    rows = []
-
-    ad = results["annotation_density"]
-    flag = f"{_GREEN}OK{_RESET}" if not ad["warn"] else f"{_YELLOW}WARN{_RESET}"
-    rows.append(("annotation_density", f"median={ad['median_pairs']:.1f} pairs/user", flag))
-
-    if "prompt_diversity" in results:
-        pd_ = results["prompt_diversity"]
-        flag = _flag(pd_["n_unique_prompts"], (10, 1e9), (1, 9))
-        rows.append(("prompt_diversity", f"n_unique={pd_['n_unique_prompts']}", flag))
-
-    lb = results["label_balance"]
-    flag = _flag(lb["mean_normalized_consistency"], (1.3, 1e9), (1.1, 1.3))
-    rows.append(("label_balance",
-                 f"norm_consistency={lb['mean_normalized_consistency']:.2f}  (1.0=random)",
-                 flag))
-
-    ia = results["inter_user_agreement"]
-    rows.append(("inter_user_agreement",
-                 f"mean_sim={ia['mean_pairwise_similarity']:.3f}", ""))
-
-    kap = results["krippendorff_alpha_proxy"]
-    flag = _flag(kap["corrected_ratio"], (0.03, 1.0), (0.01, 0.03))
-    rows.append(("krippendorff_proxy",
-                 f"corrected_ratio={kap['corrected_ratio']:.4f}  (0=random)",
-                 flag))
-
-    nna = results["nearest_neighbor_accuracy"]
-    flag = _flag(nna["mean_nn_accuracy"], (0.6, 1.0), (0.55, 0.6))
-    rows.append(("nn_accuracy",
-                 f"acc={nna['mean_nn_accuracy']:.3f}  (0.5=random)",
-                 flag))
-
-    if "basis_space_coherence" in results:
-        bsc = results["basis_space_coherence"]
-        flag = _flag(bsc["corrected_ratio"], (0.03, 1.0), (0.01, 0.03))
-        rows.append(("basis_space_coherence",
-                     f"corrected_ratio={bsc['corrected_ratio']:.4f}  (0=random)",
-                     flag))
-
-        pa = results["population_accuracy"]
-        flag = _flag(pa["accuracy"], (0.6, 1.0), (0.55, 0.6))
-        rows.append(("population_accuracy",
-                     f"acc={pa['accuracy']:.3f}  (0.5=random)",
-                     flag))
-
-        uvd = results["user_vector_diversity"]
-        rows.append(("user_vec_diversity",
-                     f"mean_dist={uvd['mean_pairwise_distance']:.3f}", ""))
-
-        bue = results["basis_utilization_entropy"]
-        rows.append(("basis_entropy",
-                     f"norm_entropy={bue['normalized_mean_entropy']:.3f}", ""))
-
-        hoa = results["held_out_accuracy"]
-        flag = _flag(hoa["mean_accuracy"], (0.6, 1.0), (0.55, 0.6))
-        rows.append(("held_out_accuracy",
-                     f"acc={hoa['mean_accuracy']:.3f} (n={hoa['n_users_evaluated']})",
-                     flag))
-
-    print("\n=== LoRe Suitability Report ===")
-    print(f"{'Metric':<25} {'Value':<50} {'Status'}")
-    print("-" * 85)
-    for metric, value, status in rows:
-        print(f"{metric:<25} {value:<50} {status}")
-    print()

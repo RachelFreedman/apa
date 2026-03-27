@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -36,12 +37,8 @@ import torch
 
 from apa.eval.suitability import (
     PreferencePair,
-    annotation_density, label_balance,
-    krippendorff_alpha_proxy, nearest_neighbor_accuracy,
-    basis_space_coherence, population_accuracy,
     embed_preferences,
-    fit_user_vectors, held_out_accuracy,
-    user_vector_diversity, basis_utilization_entropy,
+    evaluate_suitability,
 )
 
 _G = "\033[92m"; _Y = "\033[93m"; _R = "\033[91m"; _D = "\033[2m"; _0 = "\033[0m"
@@ -143,6 +140,8 @@ def load_prefs(path: Path) -> dict[str, list[PreferencePair]]:
 
 def _status(val, green, warn=None):
     """Return (colour+label, raw) for a value given (lo, hi) green/warn ranges."""
+    if math.isnan(val):
+        return f"{_Y}N/A{_0}", val
     if green[0] <= val <= green[1]:
         return f"{_G}PASS{_0}", val
     if warn and warn[0] <= val <= warn[1]:
@@ -164,19 +163,17 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
     Returns:
         Dict of raw metric results.
     """
-    V = V.float()
+    results = evaluate_suitability(user_pref_embeddings, V=V, K=K)
 
-    # --- compute ---
-    ad  = annotation_density(user_pref_embeddings, K)
-    lb  = label_balance(user_pref_embeddings)
-    kap = krippendorff_alpha_proxy(user_pref_embeddings)
-    nna = nearest_neighbor_accuracy(user_pref_embeddings)
-    bsc = basis_space_coherence(user_pref_embeddings, V)
-    pa  = population_accuracy(user_pref_embeddings, V)
-    W   = fit_user_vectors(user_pref_embeddings, V)
-    hoa = held_out_accuracy(user_pref_embeddings, V)
-    uvd = user_vector_diversity(W)
-    bue = basis_utilization_entropy(W)
+    ad  = results["annotation_density"]
+    lb  = results["label_balance"]
+    kap = results["krippendorff_alpha_proxy"]
+    nna = results["nearest_neighbor_accuracy"]
+    bsc = results.get("basis_space_coherence", {})
+    pa  = results.get("population_accuracy", {})
+    hoa = results.get("held_out_accuracy", {})
+    uvd = results.get("user_vector_diversity", {})
+    bue = results.get("basis_utilization_entropy", {})
 
     # --- thresholds ---
     rows = [
@@ -197,24 +194,29 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
             f"{nna['mean_nn_accuracy']:.3f} mean accuracy (0.5=random)",
             "> 0.6",
             nna["mean_nn_accuracy"],           (0.6, 1.0), (0.55, 0.6)),
-        ("basis coherence",
-            f"{bsc['corrected_ratio']:.4f} corrected ratio (0=random)",
-            "> 0.03",
-            bsc["corrected_ratio"],            (0.03, 1.0), (0.01, 0.03)),
-        ("population accuracy",
-            f"{pa['accuracy']:.3f} held-out accuracy (0.5=random)",
-            "> 0.6",
-            pa["accuracy"],                    (0.6, 1.0), (0.55, 0.6)),
-        ("held-out accuracy",
-            f"{hoa['mean_accuracy']:.3f}  (n={hoa['n_users_evaluated']})",
-            "> 0.6",
-            hoa["mean_accuracy"],              (0.6, 1.0), (0.55, 0.6)),
     ]
 
-    info_rows = [
-        ("user vec mean dist",   f"{uvd['mean_pairwise_distance']:.3f}"),
-        ("basis entropy (norm)", f"{bue['normalized_mean_entropy']:.3f}"),
-    ]
+    if bsc:
+        rows.extend([
+            ("basis coherence",
+                f"{bsc['corrected_ratio']:.4f} corrected ratio (0=random)",
+                "> 0.03",
+                bsc["corrected_ratio"],            (0.03, 1.0), (0.01, 0.03)),
+            ("population accuracy",
+                f"{pa['accuracy']:.3f} held-out accuracy (0.5=random)",
+                "> 0.6",
+                pa["accuracy"],                    (0.6, 1.0), (0.55, 0.6)),
+            ("held-out accuracy",
+                f"{hoa['mean_accuracy']:.3f}  (n={hoa['n_users_evaluated']})",
+                "> 0.6",
+                hoa["mean_accuracy"],              (0.6, 1.0), (0.55, 0.6)),
+        ])
+
+    info_rows = []
+    if uvd:
+        info_rows.append(("user vec mean dist",   f"{uvd['mean_pairwise_distance']:.3f}"))
+    if bue:
+        info_rows.append(("basis entropy (norm)", f"{bue['normalized_mean_entropy']:.3f}"))
 
     # --- print ---
     W2 = 54        # value column width
@@ -227,18 +229,13 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
     for metric, display, threshold, val, green, warn in rows:
         status, _ = _status(val, green, warn)
         print(f"  {metric:<22} {display:<{W2}} {threshold:<16} {status}")
-    print(f"  {_D}{'─'*(len(sep)-2)}{_0}")
-    for metric, display in info_rows:
-        print(f"  {_D}{metric:<22} {display:<{W2}} {'—':<16} INFO{_0}")
+    if info_rows:
+        print(f"  {_D}{'─'*(len(sep)-2)}{_0}")
+        for metric, display in info_rows:
+            print(f"  {_D}{metric:<22} {display:<{W2}} {'—':<16} INFO{_0}")
     print(sep)
 
-    return {
-        "annotation_density": ad, "label_balance": lb,
-        "krippendorff_proxy": kap, "nearest_neighbor_accuracy": nna,
-        "basis_space_coherence": bsc, "population_accuracy": pa,
-        "held_out_accuracy": hoa,
-        "user_vector_diversity": uvd, "basis_utilization_entropy": bue,
-    }
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +310,7 @@ def main():
         sys.exit(1)
 
     print(f"Loading basis from {V_path}...", flush=True)
-    V = torch.load(V_path, map_location="cpu", weights_only=False).float()
+    V = torch.load(V_path, map_location="cpu", weights_only=True).float()
 
     # --- Run report ---
     name = args.data_path.stem

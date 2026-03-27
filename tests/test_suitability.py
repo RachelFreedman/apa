@@ -26,6 +26,7 @@ from apa.eval.suitability import (
     annotation_density,
     basis_space_coherence,
     basis_utilization_entropy,
+    evaluate_suitability,
     fit_user_vectors,
     held_out_accuracy,
     inter_user_agreement,
@@ -356,6 +357,114 @@ class TestHeldOutAccuracy:
         X = [torch.randn(10, 16) for _ in range(10)]
         result = held_out_accuracy(X, V)
         assert 0.0 <= result["mean_accuracy"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Edge cases and robustness
+# ---------------------------------------------------------------------------
+
+class TestSingleUserGuards:
+
+    def test_inter_user_agreement_single_user(self):
+        X = [torch.randn(10, 32)]
+        result = inter_user_agreement(X)
+        assert np.isnan(result["mean_pairwise_similarity"])
+        assert result["n_users"] == 1
+
+    def test_nearest_neighbor_accuracy_single_user(self):
+        X = [torch.randn(10, 32)]
+        result = nearest_neighbor_accuracy(X)
+        assert np.isnan(result["mean_nn_accuracy"])
+        assert result["n_users"] == 1
+
+
+class TestHeldOutShuffle:
+
+    def test_different_seeds_give_different_splits(self):
+        D, K = 32, 4
+        torch.manual_seed(123)
+        V = torch.randn(D, K)
+        # 100 pairs per user with test_frac=0.2 → 20 test pairs each,
+        # giving fine-grained accuracy values that differ across shuffles
+        X = [torch.randn(100, D) for _ in range(30)]
+        r1 = held_out_accuracy(X, V, seed=0)
+        r2 = held_out_accuracy(X, V, seed=99)
+        assert r1["mean_accuracy"] != r2["mean_accuracy"], (
+            "different seeds should produce different held-out splits"
+        )
+
+    def test_same_seed_is_reproducible(self):
+        D, K = 32, 4
+        V = torch.randn(D, K)
+        X = [torch.randn(20, D) for _ in range(10)]
+        r1 = held_out_accuracy(X, V, seed=7)
+        r2 = held_out_accuracy(X, V, seed=7)
+        assert r1["mean_accuracy"] == r2["mean_accuracy"]
+
+
+class TestAnnotationDensityIntCounts:
+
+    def test_accepts_int_counts(self):
+        result = annotation_density([5, 10, 15, 20], K=4)
+        assert result["median_pairs"] == 12.5
+        assert result["n_users"] == 4
+        assert not result["warn"]
+
+    def test_warns_with_low_int_counts(self):
+        result = annotation_density([1, 2, 3], K=8)
+        assert result["warn"] is True
+
+
+class TestPopulationAccuracyWarn:
+
+    def test_small_dataset_sets_warn(self):
+        D, K = 16, 4
+        V = torch.randn(D, K)
+        # Very few total pairs → n_test < 5
+        X = [torch.randn(3, D) for _ in range(2)]
+        result = population_accuracy(X, V)
+        assert result["warn"] is True
+
+
+# ---------------------------------------------------------------------------
+# evaluate_suitability integration
+# ---------------------------------------------------------------------------
+
+class TestEvaluateSuitability:
+
+    def test_returns_all_keys_with_V(self):
+        D, K = 32, 4
+        V = torch.randn(D, K)
+        X = _make_random_users(20, 10, D)
+        results = evaluate_suitability(X, V=V, K=K)
+        expected_keys = {
+            "annotation_density", "label_balance", "inter_user_agreement",
+            "krippendorff_alpha_proxy", "nearest_neighbor_accuracy",
+            "basis_space_coherence", "population_accuracy",
+            "user_vector_diversity", "basis_utilization_entropy",
+            "held_out_accuracy",
+        }
+        assert expected_keys.issubset(results.keys()), (
+            f"missing keys: {expected_keys - results.keys()}"
+        )
+
+    def test_returns_embedding_only_keys_without_V(self):
+        D = 32
+        X = _make_random_users(10, 10, D)
+        results = evaluate_suitability(X, V=None, K=4)
+        assert "label_balance" in results
+        assert "nearest_neighbor_accuracy" in results
+        # V-dependent keys should be absent
+        assert "basis_space_coherence" not in results
+        assert "held_out_accuracy" not in results
+
+    def test_does_not_print(self, capsys):
+        D, K = 32, 4
+        V = torch.randn(D, K)
+        X = _make_random_users(10, 10, D)
+        evaluate_suitability(X, V=V, K=K)
+        captured = capsys.readouterr()
+        assert captured.out == "", "evaluate_suitability should not print"
 
 
 # ---------------------------------------------------------------------------

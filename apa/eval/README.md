@@ -375,7 +375,7 @@ predict the rest?  This is the most faithful fast proxy for what LoRe will
 achieve in production.  Requires V.
 
 **Math:**
-For each user `i` with `n_i >= 4` pairs, hold out the last 20%:
+For each user `i` with `n_i >= 4` pairs, randomly shuffle and hold out 20%:
 
 1. Project training pairs: `Z_i_train = X_i_train @ V`
 2. Fit user vector: `w_i = lstsq(Z_i_train, ones)`
@@ -448,6 +448,6 @@ import torch
 model, tokenizer = get_embedding_model()
 user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer)
 
-V = torch.load("models/V_K8.pt")
+V = torch.load("models/V_K8.pt", weights_only=True)
 results = evaluate_suitability(user_pref_embeddings, V=V)
 ```

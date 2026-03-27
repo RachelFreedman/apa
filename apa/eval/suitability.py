@@ -12,7 +12,7 @@ Assumed inputs for a new dataset:
 
 Usage::
 
-    from apa.eval_suitability import embed_preferences, evaluate_suitability
+    from apa.eval.suitability import embed_preferences, evaluate_suitability
     import torch
 
     # Step 1: embed raw preferences (skip if you already have embeddings)

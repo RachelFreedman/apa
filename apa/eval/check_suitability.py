@@ -3,7 +3,7 @@
 Report LoRe dataset suitability scores against green/warn/fail thresholds.
 
 Usage (as a module):
-    from scripts.check_suitability import report
+    from apa.eval.check_suitability import report
     report("My dataset", user_pref_embeddings, V, K=8)
 
 Each row shows the metric value, the threshold it must clear, and a status:
@@ -22,8 +22,9 @@ Metrics and their null hypotheses (random data expected value):
 """
 
 from __future__ import annotations
+from pathlib import Path
 import torch
-from apa.eval_suitability import (
+from apa.eval.suitability import (
     annotation_density, label_balance,
     krippendorff_alpha_proxy, nearest_neighbor_accuracy,
     basis_space_coherence, population_accuracy,
@@ -137,7 +138,7 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
 if __name__ == "__main__":
     # Demo: run on three datasets (small PRISM, large PRISM, random)
     import sys, random
-    sys.path.insert(0, __file__.replace("scripts/check_suitability.py", ""))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
     from apa.config import configure_environment, EMBEDDINGS_DIR, MODELS_DIR
     from apa.load_prism import group_embeddings_by_user

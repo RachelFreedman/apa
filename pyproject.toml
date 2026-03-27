@@ -18,6 +18,9 @@ dependencies = [
     "tqdm>=4.65",
     "huggingface_hub>=0.20",
     "pytest>=7.0",
+    "pref-voting>=0.5.4",
+    "numba>=0.60.0",
+    "nashpy>=0.0.41",
 ]
 
 [project.optional-dependencies]

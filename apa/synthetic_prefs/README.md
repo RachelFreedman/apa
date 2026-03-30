@@ -250,8 +250,7 @@ basis space LoRe actually uses*.
 
 **Pass/Fail:**
 - PASS: corrected ratio > 0.005
-- WARN: in (0.001, 0.005]
-- FAIL: <= 0.001
+- FAIL: <= 0.005
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|

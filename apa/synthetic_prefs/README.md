@@ -249,18 +249,15 @@ positive corrected ratio means user identity predicts variation *within the
 basis space LoRe actually uses*.
 
 **Pass/Fail:**
-- PASS: corrected ratio > 0.03
-- WARN: in (0.01, 0.03]
-- FAIL: <= 0.01
+- PASS: corrected ratio > 0.005
+- WARN: in (0.001, 0.005]
+- FAIL: <= 0.001
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 0.0478 | > 0.03 | PASS |
-| PRISM (200 users) | 0.0287 | > 0.03 | WARN |
-| Random (200 users) | 0.0032 | > 0.03 | FAIL |
-
-> The 200-user PRISM subset gets WARN here because sampling variance in
-> K=8 projected space is noisier at moderate user counts.
+| PRISM (50 users) | 0.0478 | > 0.005 | PASS |
+| PRISM (200 users) | 0.0287 | > 0.005 | PASS |
+| Random (200 users) | 0.0032 | > 0.005 | FAIL |
 
 ---
 

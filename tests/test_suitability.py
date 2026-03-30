@@ -22,7 +22,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from apa.eval.suitability import (
+from apa.synthetic_prefs.eval_prefs import (
     annotation_density,
     basis_space_coherence,
     basis_utilization_entropy,

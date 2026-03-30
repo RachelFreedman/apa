@@ -423,8 +423,8 @@ so that `e @ V @ w > 0` should hold for a correct prediction.
 Run the report script on a file of raw preferences (JSONL or parquet):
 
 ```bash
-python -m apa.eval.suitability path/to/prefs.jsonl
-python -m apa.eval.suitability path/to/prefs.parquet
+python -m apa.synthetic_prefs.eval_prefs path/to/prefs.jsonl
+python -m apa.synthetic_prefs.eval_prefs path/to/prefs.parquet
 ```
 
 The script loads the embedding model, embeds the preferences, loads the
@@ -441,7 +441,7 @@ pretrained basis V, and prints the full suitability report.
 **Programmatic usage:**
 
 ```python
-from apa.eval.suitability import evaluate_suitability, embed_preferences
+from apa.synthetic_prefs.eval_prefs import evaluate_suitability, embed_preferences
 from apa.train_lore_bases import get_embedding_model
 import torch
 

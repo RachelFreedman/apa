@@ -12,7 +12,7 @@ Assumed inputs for a new dataset:
 
 Usage::
 
-    from apa.eval.suitability import embed_preferences, evaluate_suitability
+    from apa.synthetic_prefs.eval_prefs import embed_preferences, evaluate_suitability
     import torch
 
     # Step 1: embed raw preferences (skip if you already have embeddings)
@@ -24,8 +24,8 @@ Usage::
 
 CLI usage::
 
-    python -m apa.eval.suitability path/to/prefs.jsonl
-    python -m apa.eval.suitability path/to/prefs.parquet
+    python -m apa.synthetic_prefs.eval_prefs path/to/prefs.jsonl
+    python -m apa.synthetic_prefs.eval_prefs path/to/prefs.parquet
 
 Accepts a path to raw preference data in one of two formats:
 

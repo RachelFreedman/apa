@@ -220,7 +220,27 @@ def inter_user_agreement(user_pref_embeddings: list[torch.Tensor]) -> dict:
         "min_pairwise_similarity": float(off_diag.min()),
         "max_pairwise_similarity": float(off_diag.max()),
         "fraction_high_agreement": float(np.mean(off_diag > 0.5)),
+        "n_users": n,
     }
+
+
+def _noise_corrected_variance_ratio(
+    groups: list[torch.Tensor],
+    user_pref_embeddings: list[torch.Tensor],
+) -> tuple[float, float, float]:
+    """Shared helper: noise-corrected between-group variance ratio.
+
+    Returns (corrected_ratio, raw_ratio, sampling_noise_fraction).
+    """
+    all_data = torch.cat(groups, dim=0)
+    grand_mean = all_data.mean(dim=0)
+    user_means = torch.stack([g.mean(dim=0) for g in groups])
+    between_var = ((user_means - grand_mean) ** 2).mean().item()
+    total_var = ((all_data - grand_mean) ** 2).mean().item()
+    mean_recip_n = float(np.mean([1.0 / len(X) for X in user_pref_embeddings]))
+    raw_ratio = between_var / (total_var + 1e-12)
+    corrected_ratio = raw_ratio - mean_recip_n
+    return corrected_ratio, raw_ratio, mean_recip_n
 
 
 def krippendorff_alpha_proxy(user_pref_embeddings: list[torch.Tensor]) -> dict:
@@ -249,21 +269,12 @@ def krippendorff_alpha_proxy(user_pref_embeddings: list[torch.Tensor]) -> dict:
     Returns:
         Dict with corrected ratio, raw ratio, and the sampling noise fraction.
     """
-    all_prefs = torch.cat([X.float() for X in user_pref_embeddings], dim=0)
-    grand_mean = all_prefs.mean(dim=0)
-
-    user_means = torch.stack([X.float().mean(dim=0) for X in user_pref_embeddings])
-    between_var = ((user_means - grand_mean) ** 2).mean().item()
-    total_var = ((all_prefs - grand_mean) ** 2).mean().item()
-
-    mean_recip_n = float(np.mean([1.0 / len(X) for X in user_pref_embeddings]))
-    raw_ratio = between_var / (total_var + 1e-12)
-    corrected_ratio = raw_ratio - mean_recip_n
-
+    groups = [X.float() for X in user_pref_embeddings]
+    corrected, raw, noise = _noise_corrected_variance_ratio(groups, user_pref_embeddings)
     return {
-        "corrected_ratio": corrected_ratio,       # ~0 for random, >0 for structured
-        "raw_ratio": raw_ratio,
-        "sampling_noise_fraction": mean_recip_n,  # expected raw_ratio under null
+        "corrected_ratio": corrected,        # ~0 for random, >0 for structured
+        "raw_ratio": raw,
+        "sampling_noise_fraction": noise,    # expected raw_ratio under null
     }
 
 
@@ -296,23 +307,12 @@ def basis_space_coherence(
         Dict with corrected and raw variance ratios in V-space.
     """
     V = V.float()
-    user_Z = [X.float() @ V for X in user_pref_embeddings]  # list of [n_i, K]
-
-    all_Z = torch.cat(user_Z, dim=0)
-    grand_mean_Z = all_Z.mean(dim=0)
-
-    user_means_Z = torch.stack([Z.mean(dim=0) for Z in user_Z])
-    between_var = ((user_means_Z - grand_mean_Z) ** 2).mean().item()
-    total_var = ((all_Z - grand_mean_Z) ** 2).mean().item()
-
-    mean_recip_n = float(np.mean([1.0 / len(X) for X in user_pref_embeddings]))
-    raw_ratio = between_var / (total_var + 1e-12)
-    corrected_ratio = raw_ratio - mean_recip_n
-
+    groups = [X.float() @ V for X in user_pref_embeddings]  # list of [n_i, K]
+    corrected, raw, noise = _noise_corrected_variance_ratio(groups, user_pref_embeddings)
     return {
-        "corrected_ratio": corrected_ratio,       # ~0 for random, >0 for structured
-        "raw_ratio": raw_ratio,
-        "sampling_noise_fraction": mean_recip_n,
+        "corrected_ratio": corrected,        # ~0 for random, >0 for structured
+        "raw_ratio": raw,
+        "sampling_noise_fraction": noise,
     }
 
 
@@ -531,7 +531,7 @@ def basis_utilization_entropy(W: torch.Tensor) -> dict:
     """
     W_soft = F.softmax(W.float(), dim=1)  # [n_users, K]
     # Shannon entropy per user: -sum(w_i * log(w_i))
-    entropies = -(W_soft * (W_soft + 1e-10).log()).sum(dim=1).cpu().numpy()
+    entropies = -(W_soft * (W_soft + 1e-12).log()).sum(dim=1).cpu().numpy()
     max_entropy = math.log(W.shape[1]) if W.shape[1] > 1 else 1.0
 
     return {

@@ -904,6 +904,14 @@ def report(name: str, user_pref_embeddings: list[torch.Tensor],
 # CLI
 # ---------------------------------------------------------------------------
 
+def _load_embeddings_from_file(path: Path) -> list[torch.Tensor]:
+    """Load a list of per-user embedding tensors from a .pt file."""
+    data = torch.load(path, map_location="cpu", weights_only=False)
+    if isinstance(data, list):
+        return [t.float() for t in data]
+    raise ValueError(f"Expected a list of tensors in {path}, got {type(data).__name__}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run LoRe suitability evaluation on a preference dataset."
@@ -911,7 +919,13 @@ def main():
     parser.add_argument(
         "data_path",
         type=Path,
-        help="Path to preference data (.jsonl or .parquet).",
+        help="Path to preference data (.jsonl, .parquet) or pre-computed embeddings (.pt).",
+    )
+    parser.add_argument(
+        "--embeddings",
+        action="store_true",
+        help="Treat data_path as a .pt file of pre-computed per-user embeddings "
+             "(list of [n_prefs, D] tensors). Skips the embedding model entirely.",
     )
     parser.add_argument(
         "--V", "--basis",
@@ -932,33 +946,47 @@ def main():
         default=None,
         help="Device for embedding model (default: cuda if available).",
     )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Dataset label for the report header (default: filename stem).",
+    )
     args = parser.parse_args()
 
     if not args.data_path.exists():
         print(f"Error: {args.data_path} does not exist.", file=sys.stderr)
         sys.exit(1)
 
-    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    name = args.name or args.data_path.stem
 
-    # --- Load raw preferences ---
-    print(f"Loading preferences from {args.data_path}...", flush=True)
-    user_prefs = load_prefs(args.data_path)
-    n_users = len(user_prefs)
-    n_pairs = sum(len(v) for v in user_prefs.values())
-    print(f"  {n_users} users, {n_pairs} preference pairs", flush=True)
+    if args.embeddings:
+        # --- Pre-computed embeddings path (no model needed) ---
+        print(f"Loading embeddings from {args.data_path}...", flush=True)
+        user_pref_embeddings = _load_embeddings_from_file(args.data_path)
+        n_users = len(user_pref_embeddings)
+        n_pairs = sum(len(t) for t in user_pref_embeddings)
+        print(f"  {n_users} users, {n_pairs} preference pairs", flush=True)
+    else:
+        # --- Raw text path (needs embedding model) ---
+        device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-    # --- Load model and embed ---
-    print("Loading embedding model...", flush=True)
-    from apa.train_lore_bases import get_embedding_model
-    model, tokenizer = get_embedding_model(device=device)
+        print(f"Loading preferences from {args.data_path}...", flush=True)
+        user_prefs = load_prefs(args.data_path)
+        n_users = len(user_prefs)
+        n_pairs = sum(len(v) for v in user_prefs.values())
+        print(f"  {n_users} users, {n_pairs} preference pairs", flush=True)
 
-    print("Embedding preferences...", flush=True)
-    user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer, device=device)
+        print("Loading embedding model...", flush=True)
+        from apa.train_lore_bases import get_embedding_model
+        model, tokenizer = get_embedding_model(device=device)
 
-    # Free GPU memory
-    del model
-    if device == "cuda":
-        torch.cuda.empty_cache()
+        print("Embedding preferences...", flush=True)
+        user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer, device=device)
+
+        del model
+        if device == "cuda":
+            torch.cuda.empty_cache()
 
     # --- Load V ---
     if args.basis_path is not None:
@@ -975,7 +1003,6 @@ def main():
     V = torch.load(V_path, map_location="cpu", weights_only=True).float()
 
     # --- Run report ---
-    name = args.data_path.stem
     report(name, user_pref_embeddings, V, K=args.K)
 
 

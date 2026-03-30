@@ -52,8 +52,8 @@ by noise.
 
 | Dataset | Value |
 |---------|-------|
-| PRISM (50 users) | 10 pairs/user |
-| PRISM (750 users) | 9 pairs/user |
+| PRISM (50 users) | 9 pairs/user |
+| PRISM (200 users) | 9 pairs/user |
 | Random (200 users) | 10 pairs/user |
 
 > Annotation density does not distinguish random from structured data --
@@ -99,9 +99,9 @@ values above 1.0 indicate genuine directional structure.
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 2.196 | > 1.3 | PASS |
-| PRISM (750 users) | 2.194 | > 1.3 | PASS |
-| Random (200 users) | 1.000 | > 1.3 | FAIL |
+| PRISM (50 users) | 2.116 | > 1.3 | PASS |
+| PRISM (200 users) | 2.163 | > 1.3 | PASS |
+| Random (200 users) | 0.993 | > 1.3 | FAIL |
 
 ---
 
@@ -147,9 +147,9 @@ distinct.
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 0.0494 | > 0.03 | PASS |
-| PRISM (750 users) | 0.0438 | > 0.03 | PASS |
-| Random (200 users) | -0.0005 | > 0.03 | FAIL |
+| PRISM (50 users) | 0.0402 | > 0.03 | PASS |
+| PRISM (200 users) | 0.0373 | > 0.03 | PASS |
+| Random (200 users) | 0.0019 | > 0.03 | FAIL |
 
 ---
 
@@ -191,8 +191,8 @@ in similar parts of embedding space should behave similarly.
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
 | PRISM (50 users) | 1.000 | > 0.6 | PASS |
-| PRISM (750 users) | 0.998 | > 0.6 | PASS |
-| Random (200 users) | 0.506 | > 0.6 | FAIL |
+| PRISM (200 users) | 0.994 | > 0.6 | PASS |
+| Random (200 users) | 0.507 | > 0.6 | FAIL |
 
 ---
 
@@ -219,12 +219,6 @@ Very low similarity means users broadly disagree.  This is an informational
 metric -- there is no hard pass/fail threshold.
 
 **Pass/Fail:** INFO only (no threshold).
-
-| Dataset | Value (mean sim) |
-|---------|------------------|
-| PRISM (50 users) | (varies) |
-| PRISM (750 users) | (varies) |
-| Random (200 users) | ~0.0 |
 
 ---
 
@@ -261,12 +255,12 @@ basis space LoRe actually uses*.
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 0.0173 | > 0.03 | WARN |
-| PRISM (750 users) | 0.0433 | > 0.03 | PASS |
-| Random (200 users) | -0.0060 | > 0.03 | FAIL |
+| PRISM (50 users) | 0.0478 | > 0.03 | PASS |
+| PRISM (200 users) | 0.0287 | > 0.03 | WARN |
+| Random (200 users) | 0.0032 | > 0.03 | FAIL |
 
-> The small PRISM subset gets WARN here because 50 users is borderline for
-> detecting between-user variance in K=8 space.
+> The 200-user PRISM subset gets WARN here because sampling variance in
+> K=8 projected space is noisier at moderate user counts.
 
 ---
 
@@ -297,9 +291,9 @@ one exists.
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 0.990 | > 0.6 | PASS |
-| PRISM (750 users) | 0.991 | > 0.6 | PASS |
-| Random (200 users) | 0.500 | > 0.6 | FAIL |
+| PRISM (50 users) | 0.979 | > 0.6 | PASS |
+| PRISM (200 users) | 0.990 | > 0.6 | PASS |
+| Random (200 users) | 0.484 | > 0.6 | FAIL |
 
 ---
 
@@ -330,9 +324,9 @@ configurations for different users.
 
 | Dataset | Value (mean dist) |
 |---------|-------------------|
-| PRISM (50 users) | 0.461 |
-| PRISM (750 users) | 0.423 |
-| Random (200 users) | 0.462 |
+| PRISM (50 users) | 0.435 |
+| PRISM (200 users) | 0.429 |
+| Random (200 users) | 0.701 |
 
 ---
 
@@ -361,9 +355,9 @@ domain's preference dimensions.
 
 | Dataset | Value (norm entropy) |
 |---------|----------------------|
-| PRISM (50 users) | 0.705 |
-| PRISM (750 users) | 0.743 |
-| Random (200 users) | 0.770 |
+| PRISM (50 users) | 0.739 |
+| PRISM (200 users) | 0.730 |
+| Random (200 users) | 0.454 |
 
 ---
 
@@ -395,9 +389,9 @@ training pairs.  It uses the closed-form least-squares proxy for PersonalizeBatc
 
 | Dataset | Value | Threshold | Status |
 |---------|-------|-----------|--------|
-| PRISM (50 users) | 0.903 | > 0.6 | PASS |
-| PRISM (750 users) | 0.871 | > 0.6 | PASS |
-| Random (200 users) | 0.497 | > 0.6 | FAIL |
+| PRISM (50 users) | 0.870 | > 0.6 | PASS |
+| PRISM (200 users) | 0.869 | > 0.6 | PASS |
+| Random (200 users) | 0.493 | > 0.6 | FAIL |
 
 ---
 
@@ -427,8 +421,15 @@ python -m apa.synthetic_prefs.eval_prefs path/to/prefs.jsonl
 python -m apa.synthetic_prefs.eval_prefs path/to/prefs.parquet
 ```
 
-The script loads the embedding model, embeds the preferences, loads the
-pretrained basis V, and prints the full suitability report.
+Or on pre-computed embeddings (list of per-user `[n_prefs, D]` tensors):
+
+```bash
+python -m apa.synthetic_prefs.eval_prefs embeddings.pt --embeddings --name "My dataset"
+```
+
+The raw-text path loads the embedding model, embeds the preferences, loads the
+pretrained basis V, and prints the full suitability report.  The `--embeddings`
+path skips the model entirely.
 
 **JSONL format** -- one JSON object per line:
 
@@ -450,4 +451,36 @@ user_pref_embeddings = embed_preferences(user_prefs, model, tokenizer)
 
 V = torch.load("models/V_K8.pt", weights_only=True)
 results = evaluate_suitability(user_pref_embeddings, V=V)
+```
+
+---
+
+## Reproducing the baseline numbers
+
+The script `test_random.sh` generates the three datasets above and runs the
+evaluation.  It uses pre-computed PRISM embeddings so no GPU is needed:
+
+```bash
+bash apa/synthetic_prefs/test_random.sh
+```
+
+### `test_random.sh`
+
+```bash
+#!/usr/bin/env bash
+# Reproduce the README baselines: PRISM subset (50 users) and random null (200 users).
+set -euo pipefail
+
+TMP=$(mktemp -d)
+trap "rm -rf $TMP" EXIT
+
+# Generate datasets
+uv run python -m apa.synthetic_prefs.sample_data sample-emb -n 50  -o "$TMP/prism50.pt"
+uv run python -m apa.synthetic_prefs.sample_data sample-emb -n 200  -o "$TMP/prism200.pt"
+uv run python -m apa.synthetic_prefs.sample_data random-emb -n 200 -o "$TMP/random200.pt"
+
+# Evaluate
+uv run python -m apa.synthetic_prefs.eval_prefs "$TMP/prism50.pt"    --embeddings --name "PRISM (50 users)"
+uv run python -m apa.synthetic_prefs.eval_prefs "$TMP/prism200.pt"    --embeddings --name "PRISM (200 users)"
+uv run python -m apa.synthetic_prefs.eval_prefs "$TMP/random200.pt"  --embeddings --name "Random (200 users)"
 ```

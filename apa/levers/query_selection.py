@@ -47,4 +47,5 @@ def select_by_ids(
     if missing:
         raise ValueError(f"Question IDs not found in data: {sorted(missing)}")
     mask = all_questions["question_id"].isin(question_ids)
-    return all_questions[mask].reset_index(drop=True)
+    result = all_questions[mask].drop_duplicates(subset="question_id")
+    return result.reset_index(drop=True)

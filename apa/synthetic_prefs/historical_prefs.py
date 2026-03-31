@@ -608,6 +608,7 @@ def generate_century_prefs(
     questions: list[dict],
     model_size: str = "8B",
     n_runs: int = 3,
+    temperature: float = 0.3,
     show_progress: bool = True,
 ) -> list[dict]:
     """Load HistLlama once for *century* and generate preferences for all profiles.
@@ -623,6 +624,7 @@ def generate_century_prefs(
             ``response_1``, ``response_2``.
         model_size: HistLlama size (``"8B"`` or ``"70B"``).
         n_runs: Number of repetitions per order direction.
+        temperature: Sampling temperature (lower = more deterministic).
         show_progress: Whether to show tqdm progress bars.
 
     Returns:
@@ -640,7 +642,8 @@ def generate_century_prefs(
 
         prefs = generate_historical_preferences(
             model, tokenizer, questions,
-            n_runs=n_runs, user_profile=profile, show_progress=show_progress,
+            n_runs=n_runs, temperature=temperature,
+            user_profile=profile, show_progress=show_progress,
         )
 
         for r in prefs:
@@ -717,7 +720,7 @@ def cmd_generate_synth(args) -> None:
         results = generate_century_prefs(
             century, profiles, questions,
             model_size=args.model_size, n_runs=args.n_runs,
-            show_progress=True,
+            temperature=args.temperature, show_progress=True,
         )
 
         records = results_to_jsonl_records(results)
@@ -786,6 +789,8 @@ def main() -> None:
     synth_parser.add_argument("--n-runs", type=int, default=3,
                               help="Repetitions per order direction (total queries = 2 * n_runs per question)")
     synth_parser.add_argument("--model-size", type=str, default="8B", choices=["8B", "70B"])
+    synth_parser.add_argument("--temperature", type=float, default=0.3,
+                              help="Sampling temperature (lower = more deterministic, default: 0.3)")
     synth_parser.add_argument("--profiles", type=str, default=None,
                               help="Path to profiles JSONL (default: bundled profiles.jsonl)")
     synth_parser.add_argument("--output-dir", type=str, default=None, help="Output directory")

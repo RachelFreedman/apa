@@ -666,11 +666,31 @@ def generate_century_prefs(
 # CLI: Generate Synthetic Preferences
 # =============================================================================
 
+def load_curated_question_ids(path: Path | str | None = None) -> list[int]:
+    """Load question IDs from a text file (one ID per line, ``#`` comments allowed).
+
+    Args:
+        path: Path to the question IDs file.  If *None*, uses the bundled
+              ``curated_questions.txt`` next to this module.
+    """
+    if path is None:
+        path = Path(__file__).parent / "curated_questions.txt"
+    path = Path(path)
+    ids: list[int] = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            ids.append(int(line))
+    return ids
+
+
 def cmd_generate_synth(args) -> None:
     """Generate synthetic preferences across centuries and user profiles."""
     from apa.config import configure_environment, NAS_BASE
     from apa.load_prism import load_prism_pairwise
-    from apa.levers.query_selection import random_subset
+    from apa.levers.query_selection import random_subset, select_by_ids
 
     configure_environment()
 
@@ -690,6 +710,15 @@ def cmd_generate_synth(args) -> None:
         print("ERROR: no valid centuries with profiles.")
         sys.exit(1)
 
+    # Load curated question IDs (if provided or default)
+    curated_ids = None
+    if args.questions is not None:
+        curated_ids = load_curated_question_ids(args.questions)
+        print(f"Using {len(curated_ids)} curated question IDs from {args.questions}")
+    elif (Path(__file__).parent / "curated_questions.txt").exists():
+        curated_ids = load_curated_question_ids()
+        print(f"Using {len(curated_ids)} curated question IDs (bundled default)")
+
     # Load PRISM questions once
     df = load_prism_pairwise()
     print(f"Loaded {len(df)} PRISM questions")
@@ -704,7 +733,10 @@ def cmd_generate_synth(args) -> None:
         print(f"Century: {century_to_name(century)}  |  {len(profiles)} profiles  |  seed={seed}")
         print(f"{'='*60}")
 
-        selected_df = random_subset(df, args.n_questions, {"seed": seed})
+        if curated_ids is not None:
+            selected_df = select_by_ids(df, curated_ids)
+        else:
+            selected_df = random_subset(df, args.n_questions, {"seed": seed})
         print(f"Selected {len(selected_df)} questions")
 
         questions = [
@@ -793,6 +825,8 @@ def main() -> None:
                               help="Sampling temperature (lower = more deterministic, default: 0.3)")
     synth_parser.add_argument("--profiles", type=str, default=None,
                               help="Path to profiles JSONL (default: bundled profiles.jsonl)")
+    synth_parser.add_argument("--questions", type=str, default=None,
+                              help="Path to curated question IDs file (default: bundled curated_questions.txt)")
     synth_parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
     synth_parser.add_argument("--seed", type=int, default=42, help="Random seed")
 

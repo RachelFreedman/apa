@@ -12,11 +12,16 @@ import pytest
 
 from apa.synthetic_prefs.historical_prefs import (
     VALID_CENTURIES,
+    load_curated_question_ids,
     load_profiles,
     results_to_jsonl_records,
     write_jsonl,
 )
-from apa.synthetic_prefs.eval_prefs import load_prefs_jsonl
+from apa.synthetic_prefs.eval_prefs import PreferencePair, load_prefs_jsonl
+from apa.synthetic_prefs.sample_data import (
+    sample_prefs_by_questions,
+    random_prefs_by_questions,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -31,8 +36,8 @@ class TestLoadProfiles:
         profiles = load_profiles()
         assert "C013" in profiles
         assert "C019" in profiles
-        assert len(profiles["C013"]) == 5
-        assert len(profiles["C019"]) == 5
+        assert len(profiles["C013"]) == 10
+        assert len(profiles["C019"]) == 10
 
     def test_all_profiles_nonempty(self):
         """Every profile is a non-empty string."""
@@ -160,3 +165,89 @@ class TestWriteJsonl:
         path = tmp_path / "empty.jsonl"
         write_jsonl([], path)
         assert path.read_text() == ""
+
+
+# ---------------------------------------------------------------------------
+# load_curated_question_ids
+# ---------------------------------------------------------------------------
+
+class TestLoadCuratedQuestionIds:
+
+    def test_bundled_file(self):
+        ids = load_curated_question_ids()
+        assert len(ids) == 20
+        assert all(isinstance(i, int) for i in ids)
+
+    def test_custom_file(self, tmp_path):
+        path = tmp_path / "qs.txt"
+        path.write_text("# comment\n100\n200\n\n300\n")
+        ids = load_curated_question_ids(path)
+        assert ids == [100, 200, 300]
+
+
+# ---------------------------------------------------------------------------
+# sample_prefs_by_questions / random_prefs_by_questions
+# ---------------------------------------------------------------------------
+
+def _make_prefs():
+    return {
+        "u0": [
+            PreferencePair("Q1", "A", "B"),
+            PreferencePair("Q2", "C", "D"),
+            PreferencePair("Q3", "E", "F"),
+        ],
+        "u1": [
+            PreferencePair("Q1", "G", "H"),
+            PreferencePair("Q4", "I", "J"),
+        ],
+        "u2": [
+            PreferencePair("Q2", "K", "L"),
+        ],
+    }
+
+
+class TestSamplePrefsByQuestions:
+
+    def test_filters_to_matching_prompts(self):
+        prefs = _make_prefs()
+        result = sample_prefs_by_questions(prefs, {"Q1", "Q2"})
+        # u0 has Q1 and Q2, u1 has Q1, u2 has Q2
+        assert set(result.keys()) == {"u0", "u1", "u2"}
+        assert len(result["u0"]) == 2
+        assert len(result["u1"]) == 1
+        assert len(result["u2"]) == 1
+
+    def test_drops_users_with_no_matches(self):
+        prefs = _make_prefs()
+        result = sample_prefs_by_questions(prefs, {"Q4"})
+        # Only u1 has Q4
+        assert set(result.keys()) == {"u1"}
+
+    def test_subsample_users(self):
+        prefs = _make_prefs()
+        result = sample_prefs_by_questions(prefs, {"Q1", "Q2"}, n_users=2, seed=42)
+        assert len(result) == 2
+
+    def test_empty_prompt_set(self):
+        prefs = _make_prefs()
+        result = sample_prefs_by_questions(prefs, set())
+        assert result == {}
+
+
+class TestRandomPrefsByQuestions:
+
+    def test_preserves_prompts(self):
+        prefs = _make_prefs()
+        result = random_prefs_by_questions(prefs, {"Q1"})
+        for pairs in result.values():
+            for p in pairs:
+                assert p.prompt == "Q1"
+
+    def test_flips_some_labels(self):
+        """With enough data, at least one pair should be flipped."""
+        # Use many pairs to make flipping statistically certain
+        prefs = {"u0": [PreferencePair("Q1", "A", "B") for _ in range(50)]}
+        result = random_prefs_by_questions(prefs, {"Q1"}, seed=42)
+        chosen_values = {p.chosen for p in result["u0"]}
+        # Should have both A and B as chosen (some flipped, some not)
+        assert chosen_values == {"A", "B"}

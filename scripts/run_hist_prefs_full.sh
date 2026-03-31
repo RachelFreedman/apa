@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Generate synthetic historical preferences (20 users) and compare against PRISM/Random baselines.
 #
-# Expected runtime: ~28 minutes (10 profiles x 2 centuries x 20 questions x 3 reps x 2 orders
+# Uses: low temperature (0.3), enriched profiles with value statements,
+#       curated value-laden PRISM questions, matched-question baselines.
+#
+# Expected runtime: ~20 minutes (10 profiles x 2 centuries x 20 questions x 3 reps x 2 orders
 #   = 2400 model queries, plus embedding + eval).
 #
 # Usage:
@@ -11,19 +14,20 @@ set -euo pipefail
 OUT_DIR="${1:-/nas/ucb/rachel/APA/synthetic_prefs}"
 mkdir -p "$OUT_DIR"
 
-echo "Expected runtime: ~28 minutes"
+echo "Expected runtime: ~20 minutes"
 echo ""
 
-echo "=== Step 1: Generate historical preferences (20 users) ==="
+echo "=== Step 1: Generate historical preferences (20 users, curated questions, temp=0.3) ==="
 uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
     --centuries C013 C019 \
     --n-questions 20 \
     --n-runs 3 \
+    --temperature 0.3 \
     --seed 42 \
     --output-dir "$OUT_DIR"
 
 echo ""
-echo "=== Step 2: Run comparison (Synth vs PRISM vs Random, all at 20 users) ==="
+echo "=== Step 2: Compare Synth vs PRISM vs Random (matched questions, 20 users each) ==="
 uv run python scripts/compare_metrics.py \
     --synth-path "$OUT_DIR/hist_prefs_all.jsonl" \
     --n-baseline-users 20 \

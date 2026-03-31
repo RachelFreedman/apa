@@ -12,6 +12,7 @@ from apa.levers.voter_aggregation import (
     copeland,
     instant_runoff,
 )
+from apa.levers.query_selection import random_subset, select_by_ids
 from apa.levers.voter_sampling import (
     random_sampling,
     stratified_sampling,
@@ -172,3 +173,41 @@ class TestQuerySelection:
         result = random_subset(df, 100, {})
 
         assert len(result) == 5
+
+
+class TestSelectByIds:
+    """Tests for select_by_ids question selection."""
+
+    def test_basic_selection(self):
+        df = pd.DataFrame({
+            'question_id': [10, 20, 30, 40, 50],
+            'prompt': ['a', 'b', 'c', 'd', 'e'],
+        })
+        result = select_by_ids(df, [20, 40])
+        assert len(result) == 2
+        assert set(result['question_id']) == {20, 40}
+
+    def test_preserves_all_columns(self):
+        df = pd.DataFrame({
+            'question_id': [1, 2, 3],
+            'prompt': ['a', 'b', 'c'],
+            'response_1': ['r1a', 'r1b', 'r1c'],
+        })
+        result = select_by_ids(df, [2])
+        assert list(result.columns) == list(df.columns)
+        assert result.iloc[0]['prompt'] == 'b'
+
+    def test_missing_ids_raises(self):
+        df = pd.DataFrame({'question_id': [1, 2, 3], 'prompt': ['a', 'b', 'c']})
+        with pytest.raises(ValueError, match="not found"):
+            select_by_ids(df, [1, 99])
+
+    def test_duplicate_rows_for_same_id(self):
+        """If a question_id appears multiple times, all rows are returned."""
+        df = pd.DataFrame({
+            'question_id': [1, 1, 2],
+            'prompt': ['a', 'a', 'b'],
+            'interaction_id': ['u1', 'u2', 'u3'],
+        })
+        result = select_by_ids(df, [1])
+        assert len(result) == 2

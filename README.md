@@ -48,15 +48,15 @@ uv run python -m apa.train_lore_bases --K_list 0,1 --n_users 50
 #### 3a. Generate historical preferences
 
 ```bash
-uv run python -m apa.historical_prefs generate --century C013 --n_questions 500
-uv run python -m apa.historical_prefs generate --century C017 --n_questions 500
+uv run python -m apa.synthetic_prefs.historical_prefs generate --century C013 --n_questions 500
+uv run python -m apa.synthetic_prefs.historical_prefs generate --century C017 --n_questions 500
 ```
 
 #### 3b. Train historical user vectors
 
 ```bash
-uv run python -m apa.historical_prefs train --century C013
-uv run python -m apa.historical_prefs train --century C017
+uv run python -m apa.synthetic_prefs.historical_prefs train --century C013
+uv run python -m apa.synthetic_prefs.historical_prefs train --century C017
 ```
 
 ### 4. Run democratic inference
@@ -80,13 +80,18 @@ APA/
 │   ├── config.py              # Configuration and paths
 │   ├── load_prism.py          # PRISM data loading and embedding
 │   ├── train_lore_bases.py    # LoRe reward model training
-│   ├── historical_prefs.py    # Historical preference generation
 │   ├── democratic_response.py # Democratic inference pipeline
+│   ├── synthetic_prefs/       # Preference generation and evaluation
+│   │   ├── historical_prefs.py   # HistLlama preference generation
+│   │   ├── eval_prefs.py         # LoRe suitability evaluation
+│   │   ├── sample_data.py        # Baseline data sampling
+│   │   └── profiles.jsonl        # Historical user profiles
 │   └── levers/                # Modular strategy functions
 │       ├── voter_sampling.py
 │       ├── voter_aggregation.py
 │       ├── query_selection.py
 │       └── slate_generation.py
+├── scripts/
 ├── tests/
 ├── setup_uv.sh
 └── pyproject.toml

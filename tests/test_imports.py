@@ -50,7 +50,7 @@ def test_train_lore_bases():
 
 def test_historical_prefs():
     """Test historical_prefs module."""
-    from apa.historical_prefs import (
+    from apa.synthetic_prefs.historical_prefs import (
         load_hist_llama,
         generate_historical_preferences,
         parse_model_response,

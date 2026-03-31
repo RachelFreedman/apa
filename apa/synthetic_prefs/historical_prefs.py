@@ -7,8 +7,8 @@ This module provides:
 - Training user vectors from historical preferences
 
 CLI Usage:
-    python -m apa.historical_prefs generate --century C017
-    python -m apa.historical_prefs train --preferences_file ...
+    python -m apa.synthetic_prefs.historical_prefs generate --century C017
+    python -m apa.synthetic_prefs.historical_prefs train --preferences_file ...
 """
 
 from __future__ import annotations
@@ -417,7 +417,7 @@ def cmd_generate(args) -> None:
 
     print(f"\nSaved preferences to: {output_path}")
     print(f"\nNext step: Train user vector with:")
-    print(f"  python -m apa.historical_prefs train --preferences_file {output_path}")
+    print(f"  python -m apa.synthetic_prefs.historical_prefs train --preferences_file {output_path}")
 
 
 # =============================================================================

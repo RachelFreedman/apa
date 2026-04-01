@@ -88,16 +88,26 @@ def main():
     print(f"Matching baselines to {len(synth_prompts)} unique question prompts", flush=True)
 
     # --- PRISM baseline: same questions, real preferences ---
-    from apa.synthetic_prefs.eval_prefs import load_prefs_parquet
-    from apa.config import PRISM_DATA_DIR
-    train_parquet = PRISM_DATA_DIR / "train.parquet"
-    if train_parquet.exists():
-        prism_all_prefs = load_prefs_parquet(train_parquet)
-    else:
-        # Fallback: try to load from the pairwise CSV via JSONL-like format
-        print("WARNING: train.parquet not found, using pairwise CSV as fallback", flush=True)
-        from apa.synthetic_prefs.historical_prefs import load_curated_question_ids
-        prism_all_prefs = {}
+    # Load from pairwise CSV (same source as synthetic experiment) rather than
+    # parquet (which has multi-turn chat-formatted prompts that won't match).
+    from apa.load_prism import load_prism_pairwise
+    from apa.synthetic_prefs.eval_prefs import PreferencePair
+    from collections import defaultdict
+
+    df_prism = load_prism_pairwise()
+    prism_all_prefs: dict[str, list] = defaultdict(list)
+    for _, row in df_prism.iterrows():
+        uid = str(row.get("user_id", row.get("interaction_id", "")))
+        prism_all_prefs[uid].append(
+            PreferencePair(
+                prompt=row["prompt"],
+                chosen=row["response_2"],   # human_preferred is always 2
+                rejected=row["response_1"],
+            )
+        )
+    prism_all_prefs = dict(prism_all_prefs)
+    print(f"Loaded PRISM pairwise: {len(prism_all_prefs)} users, "
+          f"{sum(len(v) for v in prism_all_prefs.values())} pairs", flush=True)
 
     prism_matched = sample_prefs_by_questions(prism_all_prefs, synth_prompts, n_users=n, seed=args.seed)
     rand_matched = random_prefs_by_questions(prism_all_prefs, synth_prompts, n_users=n, seed=args.seed)

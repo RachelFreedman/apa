@@ -1,12 +1,12 @@
 """
 Compare eval_prefs suitability metrics across synthetic, PRISM, and random baselines.
 
-Baselines are matched to the same PRISM questions used by the synthetic experiment
-so the comparison is fair (same prompts, same response pairs).
+PRISM and Random baselines use randomly sampled users from pre-computed
+PRISM embeddings (no re-embedding needed).
 
 Usage:
     uv run python scripts/compare_metrics.py --synth-path path/to/hist_prefs_all.jsonl
-    uv run python scripts/compare_metrics.py --synth-path path/to/hist_prefs_all.jsonl --n-baseline-users 20
+    uv run python scripts/compare_metrics.py --synth-path path/to/hist_prefs_all.jsonl --n-baseline-users 90
 """
 
 from __future__ import annotations
@@ -23,8 +23,9 @@ from apa.synthetic_prefs.eval_prefs import (
     load_prefs,
 )
 from apa.synthetic_prefs.sample_data import (
-    random_prefs_by_questions,
-    sample_prefs_by_questions,
+    _load_prism_embeddings,
+    random_embeddings,
+    sample_embeddings,
 )
 
 
@@ -61,14 +62,13 @@ def main():
     parser = argparse.ArgumentParser(description="Compare suitability metrics across datasets.")
     parser.add_argument("--synth-path", type=Path, required=True,
                         help="Path to synthetic preferences JSONL.")
-    parser.add_argument("--n-baseline-users", type=int, default=20,
-                        help="Number of users for PRISM/Random baselines.")
+    parser.add_argument("--n-baseline-users", type=int, default=None,
+                        help="Number of users for PRISM/Random baselines (default: match synth count).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--K", type=int, default=8)
     args = parser.parse_args()
 
     V = torch.load(MODELS_DIR / f"V_K{args.K}.pt", map_location="cpu", weights_only=True).float()
-    n = args.n_baseline_users
 
     # --- Synthetic: embed ---
     print(f"Embedding synthetic preferences from {args.synth_path}...", flush=True)
@@ -76,63 +76,26 @@ def main():
     from apa.train_lore_bases import get_embedding_model
     model, tokenizer = get_embedding_model()
     synth_embs = embed_preferences(synth_prefs, model, tokenizer)
+    del model
+    torch.cuda.empty_cache()
 
     n_synth = len(synth_embs)
     synth_results = evaluate_suitability(synth_embs, V=V, K=args.K)
 
-    # --- Extract question prompts used by synthetic experiment ---
-    synth_prompts: set[str] = set()
-    for pairs in synth_prefs.values():
-        for p in pairs:
-            synth_prompts.add(p.prompt)
-    print(f"Matching baselines to {len(synth_prompts)} unique question prompts", flush=True)
+    # --- PRISM & Random baselines (pre-computed embeddings, random users) ---
+    n = args.n_baseline_users if args.n_baseline_users is not None else n_synth
+    print(f"Sampling {n} PRISM and {n} Random users from pre-computed embeddings...", flush=True)
+    prism_all = _load_prism_embeddings()
+    prism_n = sample_embeddings(prism_all, n, seed=args.seed)
+    rand_n = random_embeddings(prism_all, n, seed=args.seed)
 
-    # --- PRISM baseline: same questions, real preferences ---
-    # Load from pairwise CSV (same source as synthetic experiment) rather than
-    # parquet (which has multi-turn chat-formatted prompts that won't match).
-    from apa.load_prism import load_prism_pairwise
-    from apa.synthetic_prefs.eval_prefs import PreferencePair
-    from collections import defaultdict
-
-    df_prism = load_prism_pairwise()
-    prism_all_prefs: dict[str, list] = defaultdict(list)
-    for _, row in df_prism.iterrows():
-        uid = str(row.get("user_id", row.get("interaction_id", "")))
-        prism_all_prefs[uid].append(
-            PreferencePair(
-                prompt=row["prompt"],
-                chosen=row["response_2"],   # human_preferred is always 2
-                rejected=row["response_1"],
-            )
-        )
-    prism_all_prefs = dict(prism_all_prefs)
-    print(f"Loaded PRISM pairwise: {len(prism_all_prefs)} users, "
-          f"{sum(len(v) for v in prism_all_prefs.values())} pairs", flush=True)
-
-    prism_matched = sample_prefs_by_questions(prism_all_prefs, synth_prompts, n_users=n, seed=args.seed)
-    rand_matched = random_prefs_by_questions(prism_all_prefs, synth_prompts, n_users=n, seed=args.seed)
-
-    n_prism = len(prism_matched)
-    n_rand = len(rand_matched)
-    print(f"PRISM baseline: {n_prism} users, {sum(len(v) for v in prism_matched.values())} pairs", flush=True)
-    print(f"Random baseline: {n_rand} users, {sum(len(v) for v in rand_matched.values())} pairs", flush=True)
-
-    # --- Embed baselines ---
-    print("Embedding PRISM baseline...", flush=True)
-    prism_embs = embed_preferences(prism_matched, model, tokenizer)
-    print("Embedding Random baseline...", flush=True)
-    rand_embs = embed_preferences(rand_matched, model, tokenizer)
-
-    del model
-    torch.cuda.empty_cache()
-
-    prism_results = evaluate_suitability(prism_embs, V=V, K=args.K)
-    rand_results = evaluate_suitability(rand_embs, V=V, K=args.K)
+    prism_results = evaluate_suitability(prism_n, V=V, K=args.K)
+    rand_results = evaluate_suitability(rand_n, V=V, K=args.K)
 
     # --- Table ---
     synth_label = f"Synth ({n_synth})"
-    prism_label = f"PRISM ({n_prism})"
-    rand_label = f"Random ({n_rand})"
+    prism_label = f"PRISM ({n})"
+    rand_label = f"Random ({n})"
 
     w_metric = 40
     w_col = 16

@@ -36,8 +36,9 @@ class TestLoadProfiles:
         profiles = load_profiles()
         assert "C013" in profiles
         assert "C019" in profiles
-        assert len(profiles["C013"]) == 10
-        assert len(profiles["C019"]) == 10
+        for century in ["C013", "C014", "C015", "C016", "C017", "C018", "C019", "C020", "C021"]:
+            assert century in profiles, f"Missing century {century}"
+            assert len(profiles[century]) == 10, f"{century} has {len(profiles[century])} profiles, expected 10"
 
     def test_all_profiles_nonempty(self):
         """Every profile is a non-empty string."""

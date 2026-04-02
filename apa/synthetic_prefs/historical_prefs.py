@@ -710,14 +710,11 @@ def cmd_generate_synth(args) -> None:
         print("ERROR: no valid centuries with profiles.")
         sys.exit(1)
 
-    # Load curated question IDs (if provided or default)
+    # Load curated question IDs (if explicitly provided)
     curated_ids = None
     if args.questions is not None:
         curated_ids = load_curated_question_ids(args.questions)
         print(f"Using {len(curated_ids)} curated question IDs from {args.questions}")
-    elif (Path(__file__).parent / "curated_questions.txt").exists():
-        curated_ids = load_curated_question_ids()
-        print(f"Using {len(curated_ids)} curated question IDs (bundled default)")
 
     # Load PRISM questions once
     df = load_prism_pairwise()

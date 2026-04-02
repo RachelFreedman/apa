@@ -20,7 +20,7 @@ echo ""
 echo "=== Step 1: Generate historical preferences (20 users, curated questions, temp=0.3) ==="
 uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
     --centuries C013 C019 \
-    --n-questions 20 \
+    --questions apa/synthetic_prefs/curated_questions.txt \
     --n-runs 3 \
     --temperature 0.3 \
     --seed 42 \

@@ -7,8 +7,8 @@ This module provides:
 - Training user vectors from historical preferences
 
 CLI Usage:
-    python -m apa.historical_prefs generate --century C017
-    python -m apa.historical_prefs train --preferences_file ...
+    python -m apa.synthetic_prefs.historical_prefs generate --century C017
+    python -m apa.synthetic_prefs.historical_prefs train --preferences_file ...
 """
 
 from __future__ import annotations
@@ -216,8 +216,8 @@ def generate_single_preference(
             do_sample=True, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id,
         )
 
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    response = generated_text[len(comparison_prompt):].strip()
+    new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+    response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
     return parse_model_response(response)
 
@@ -417,7 +417,7 @@ def cmd_generate(args) -> None:
 
     print(f"\nSaved preferences to: {output_path}")
     print(f"\nNext step: Train user vector with:")
-    print(f"  python -m apa.historical_prefs train --preferences_file {output_path}")
+    print(f"  python -m apa.synthetic_prefs.historical_prefs train --preferences_file {output_path}")
 
 
 # =============================================================================
@@ -434,7 +434,7 @@ def cmd_train(args) -> None:
     prefs_path = Path(args.preferences_file)
     if not prefs_path.exists():
         print(f"ERROR: Preferences file not found: {prefs_path}")
-        print("Generate preferences first: python -m apa.historical_prefs generate --century C013")
+        print("Generate preferences first: python -m apa.synthetic_prefs.historical_prefs generate --century C013")
         sys.exit(1)
 
     print(f"Loading preferences from {prefs_path}")
@@ -525,6 +525,256 @@ def cmd_train(args) -> None:
 
 
 # =============================================================================
+# Synthetic preference generation from profiles
+# =============================================================================
+
+CENTURY_SEED_OFFSETS = {c: i * 100 for i, c in enumerate(VALID_CENTURIES)}
+
+
+def load_profiles(path: Path | str | None = None) -> dict[str, list[str]]:
+    """Load user profiles from a JSONL file.
+
+    Each line must be a JSON object with ``"century"`` and ``"profile"`` fields.
+
+    Args:
+        path: Path to the profiles JSONL file.  If *None*, uses the bundled
+              ``profiles.jsonl`` next to this module.
+
+    Returns:
+        Dict mapping century code to list of profile description strings.
+    """
+    if path is None:
+        path = Path(__file__).parent / "profiles.jsonl"
+    path = Path(path)
+
+    profiles: dict[str, list[str]] = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            century = obj["century"]
+            profiles.setdefault(century, []).append(obj["profile"])
+    return profiles
+
+
+def results_to_jsonl_records(results: list[dict]) -> list[dict]:
+    """Convert :func:`generate_historical_preferences` output to eval_prefs JSONL format.
+
+    Each result with ``final_preference`` in ``{'1', '2'}`` becomes one record
+    with keys ``user_id``, ``prompt``, ``chosen``, ``rejected``.  Results with
+    ``final_preference == '-1'`` (ambiguous) are skipped.
+    """
+    records = []
+    for r in results:
+        pref = r.get("final_preference")
+        if pref == "1":
+            chosen, rejected = r["response_1"], r["response_2"]
+        elif pref == "2":
+            chosen, rejected = r["response_2"], r["response_1"]
+        else:
+            continue
+        records.append({
+            "user_id": r["user_id"],
+            "prompt": r["prompt"],
+            "chosen": chosen,
+            "rejected": rejected,
+        })
+    return records
+
+
+def write_jsonl(records: list[dict], path: Path) -> None:
+    """Write records as JSONL (one JSON object per line)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        for rec in records:
+            json.dump(rec, f)
+            f.write("\n")
+
+
+def write_raw_results(results: list[dict], path: Path) -> None:
+    """Write full provenance JSON including per-run choices and consistency."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(results, f, indent=2)
+
+
+def generate_century_prefs(
+    century: str,
+    profiles: list[str],
+    questions: list[dict],
+    model_size: str = "8B",
+    n_runs: int = 3,
+    temperature: float = 0.3,
+    show_progress: bool = True,
+) -> list[dict]:
+    """Load HistLlama once for *century* and generate preferences for all profiles.
+
+    For each profile, calls :func:`generate_historical_preferences` which runs
+    *n_runs* times in original order and *n_runs* times in reversed order per
+    question.
+
+    Args:
+        century: Century code (e.g. ``"C013"``).
+        profiles: List of user profile description strings.
+        questions: List of dicts with keys ``question_id``, ``prompt``,
+            ``response_1``, ``response_2``.
+        model_size: HistLlama size (``"8B"`` or ``"70B"``).
+        n_runs: Number of repetitions per order direction.
+        temperature: Sampling temperature (lower = more deterministic).
+        show_progress: Whether to show tqdm progress bars.
+
+    Returns:
+        Flat list of annotated result dicts, each containing ``user_id``,
+        ``century``, ``profile_index``, ``user_profile`` in addition to the
+        fields from :func:`generate_historical_preferences`.
+    """
+    print(f"\nLoading HistLlama {model_size} for {century_to_name(century)}...")
+    model, tokenizer = load_hist_llama(century=century, size=model_size)
+
+    all_results: list[dict] = []
+    for idx, profile in enumerate(profiles):
+        user_id = f"hist_{century}_{idx:02d}"
+        print(f"\n--- Profile {idx}: {profile[:60]}... ---")
+
+        prefs = generate_historical_preferences(
+            model, tokenizer, questions,
+            n_runs=n_runs, temperature=temperature,
+            user_profile=profile, show_progress=show_progress,
+        )
+
+        for r in prefs:
+            r["user_id"] = user_id
+            r["century"] = century
+            r["profile_index"] = idx
+            r["user_profile"] = profile
+
+        all_results.extend(prefs)
+
+    # Free GPU memory before loading next century
+    del model, tokenizer
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return all_results
+
+
+# =============================================================================
+# CLI: Generate Synthetic Preferences
+# =============================================================================
+
+def load_curated_question_ids(path: Path | str | None = None) -> list[int]:
+    """Load question IDs from a text file (one ID per line, ``#`` comments allowed).
+
+    Args:
+        path: Path to the question IDs file.  If *None*, uses the bundled
+              ``curated_questions.txt`` next to this module.
+    """
+    if path is None:
+        path = Path(__file__).parent / "curated_questions.txt"
+    path = Path(path)
+    ids: list[int] = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            ids.append(int(line))
+    return ids
+
+
+def cmd_generate_synth(args) -> None:
+    """Generate synthetic preferences across centuries and user profiles."""
+    from apa.config import configure_environment, NAS_BASE
+    from apa.load_prism import load_prism_pairwise
+    from apa.levers.query_selection import random_subset, select_by_ids
+
+    configure_environment()
+
+    output_dir = Path(args.output_dir) if args.output_dir else NAS_BASE / "synthetic_prefs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load profiles
+    profiles_all = load_profiles(args.profiles)
+    centuries = args.centuries
+
+    for c in centuries:
+        if c not in profiles_all:
+            print(f"WARNING: no profiles for {c} in profiles file, skipping.")
+    centuries = [c for c in centuries if c in profiles_all]
+
+    if not centuries:
+        print("ERROR: no valid centuries with profiles.")
+        sys.exit(1)
+
+    # Load curated question IDs (if explicitly provided)
+    curated_ids = None
+    if args.questions is not None:
+        curated_ids = load_curated_question_ids(args.questions)
+        print(f"Using {len(curated_ids)} curated question IDs from {args.questions}")
+
+    # Load PRISM questions once
+    df = load_prism_pairwise()
+    print(f"Loaded {len(df)} PRISM questions")
+
+    all_records: list[dict] = []
+
+    for century in centuries:
+        profiles = profiles_all[century]
+        seed = args.seed + CENTURY_SEED_OFFSETS.get(century, 0)
+
+        print(f"\n{'='*60}")
+        print(f"Century: {century_to_name(century)}  |  {len(profiles)} profiles  |  seed={seed}")
+        print(f"{'='*60}")
+
+        if curated_ids is not None:
+            selected_df = select_by_ids(df, curated_ids)
+        else:
+            selected_df = random_subset(df, args.n_questions, {"seed": seed})
+        print(f"Selected {len(selected_df)} questions")
+
+        questions = [
+            {
+                "question_id": row["question_id"],
+                "prompt": row["prompt"],
+                "response_1": row["response_1"],
+                "response_2": row["response_2"],
+            }
+            for _, row in selected_df.iterrows()
+        ]
+
+        results = generate_century_prefs(
+            century, profiles, questions,
+            model_size=args.model_size, n_runs=args.n_runs,
+            temperature=args.temperature, show_progress=True,
+        )
+
+        records = results_to_jsonl_records(results)
+
+        # Write per-century outputs
+        write_jsonl(records, output_dir / f"hist_prefs_{century}.jsonl")
+        write_raw_results(results, output_dir / f"hist_prefs_{century}_raw.json")
+
+        valid = len(records)
+        total = len(results)
+        consistencies = [r["consistency"] for r in results]
+        avg_c = sum(consistencies) / len(consistencies) if consistencies else 0
+
+        print(f"\n{century} results: {valid}/{total} valid preferences, "
+              f"avg consistency {avg_c:.2%}")
+
+        all_records.extend(records)
+
+    # Write combined output
+    write_jsonl(all_records, output_dir / "hist_prefs_all.jsonl")
+    print(f"\nTotal: {len(all_records)} preference records across {len(centuries)} centuries")
+    print(f"Output: {output_dir}")
+
+
+# =============================================================================
 # Main CLI
 # =============================================================================
 
@@ -556,12 +806,35 @@ def main() -> None:
     train_parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     train_parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 
+    # Generate-synth subcommand
+    synth_parser = subparsers.add_parser(
+        'generate-synth',
+        help='Generate synthetic preferences across centuries and user profiles',
+    )
+    synth_parser.add_argument("--centuries", nargs="+", default=["C013", "C019"],
+                              choices=VALID_CENTURIES, help="Centuries to generate for")
+    synth_parser.add_argument("--n-questions", type=int, default=20,
+                              help="Number of PRISM questions per century")
+    synth_parser.add_argument("--n-runs", type=int, default=3,
+                              help="Repetitions per order direction (total queries = 2 * n_runs per question)")
+    synth_parser.add_argument("--model-size", type=str, default="8B", choices=["8B", "70B"])
+    synth_parser.add_argument("--temperature", type=float, default=0.3,
+                              help="Sampling temperature (lower = more deterministic, default: 0.3)")
+    synth_parser.add_argument("--profiles", type=str, default=None,
+                              help="Path to profiles JSONL (default: bundled profiles.jsonl)")
+    synth_parser.add_argument("--questions", type=str, default=None,
+                              help="Path to curated question IDs file (default: bundled curated_questions.txt)")
+    synth_parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
+    synth_parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
     args = parser.parse_args()
 
     if args.command == 'generate':
         cmd_generate(args)
     elif args.command == 'train':
         cmd_train(args)
+    elif args.command == 'generate-synth':
+        cmd_generate_synth(args)
     else:
         parser.print_help()
         sys.exit(1)

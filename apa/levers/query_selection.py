@@ -24,3 +24,28 @@ def random_subset(
     n_questions = min(n_questions, len(all_questions))
     indices = random.sample(range(len(all_questions)), n_questions)
     return all_questions.iloc[indices].reset_index(drop=True)
+
+
+def select_by_ids(
+    all_questions: pd.DataFrame,
+    question_ids: list[int],
+) -> pd.DataFrame:
+    """Select specific questions by their ``question_id``.
+
+    Args:
+        all_questions: DataFrame with a ``question_id`` column.
+        question_ids: List of question IDs to select.
+
+    Returns:
+        Filtered DataFrame containing only the requested questions.
+
+    Raises:
+        ValueError: If any requested IDs are not found.
+    """
+    available = set(all_questions["question_id"])
+    missing = set(question_ids) - available
+    if missing:
+        raise ValueError(f"Question IDs not found in data: {sorted(missing)}")
+    mask = all_questions["question_id"].isin(question_ids)
+    result = all_questions[mask].drop_duplicates(subset="question_id")
+    return result.reset_index(drop=True)

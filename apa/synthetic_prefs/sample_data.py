@@ -99,10 +99,78 @@ def random_prefs(
 
 
 # ---------------------------------------------------------------------------
+# Question-matched operations (filter to specific prompts)
+# ---------------------------------------------------------------------------
+
+
+def sample_prefs_by_questions(
+    user_prefs: dict[str, list[PreferencePair]],
+    question_prompts: set[str],
+    n_users: int | None = None,
+    seed: int = 0,
+) -> dict[str, list[PreferencePair]]:
+    """Filter preferences to only include pairs matching *question_prompts*,
+    then optionally subsample to *n_users*.
+
+    Args:
+        user_prefs: Grouped preferences keyed by user_id.
+        question_prompts: Set of prompt strings to keep.
+        n_users: If given, randomly sample this many users from the result.
+        seed: Random seed for user subsampling.
+
+    Returns:
+        Filtered (and optionally subsampled) preferences.
+    """
+    filtered: dict[str, list[PreferencePair]] = {}
+    for uid, pairs in user_prefs.items():
+        kept = [p for p in pairs if p.prompt in question_prompts]
+        if kept:
+            filtered[uid] = kept
+
+    if n_users is not None and n_users < len(filtered):
+        rng = random.Random(seed)
+        selected = rng.sample(sorted(filtered.keys()), n_users)
+        filtered = {uid: filtered[uid] for uid in selected}
+
+    return filtered
+
+
+def random_prefs_by_questions(
+    user_prefs: dict[str, list[PreferencePair]],
+    question_prompts: set[str],
+    n_users: int | None = None,
+    seed: int = 0,
+) -> dict[str, list[PreferencePair]]:
+    """Like :func:`sample_prefs_by_questions` but randomly flip chosen/rejected.
+
+    Destroys preference signal while keeping the same text distribution —
+    useful as a null baseline on the same questions.
+    """
+    filtered = sample_prefs_by_questions(user_prefs, question_prompts, n_users=None, seed=seed)
+    rng = random.Random(seed)
+
+    result: dict[str, list[PreferencePair]] = {}
+    for uid, pairs in filtered.items():
+        flipped = []
+        for p in pairs:
+            if rng.random() < 0.5:
+                flipped.append(PreferencePair(p.prompt, p.rejected, p.chosen))
+            else:
+                flipped.append(p)
+        result[uid] = flipped
+
+    if n_users is not None and n_users < len(result):
+        selected = rng.sample(sorted(result.keys()), n_users)
+        result = {uid: result[uid] for uid in selected}
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Embedding-level operations (no re-embedding needed)
 # ---------------------------------------------------------------------------
 
-def _load_prism_embeddings(device: str = "cpu") -> list[torch.Tensor]:
+def load_prism_embeddings(device: str = "cpu") -> list[torch.Tensor]:
     """Load pre-computed PRISM train_seen embeddings."""
     from apa.config import EMBEDDINGS_DIR
     from apa.load_prism import group_embeddings_by_user
@@ -199,7 +267,7 @@ def main():
 
     # --- embedding commands ---
     if args.command in ("sample-emb", "random-emb"):
-        embeddings = _load_prism_embeddings()
+        embeddings = load_prism_embeddings()
 
         if args.command == "sample-emb":
             data = sample_embeddings(embeddings, args.n, seed=args.seed)

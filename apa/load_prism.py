@@ -534,7 +534,7 @@ def load_prism_pairwise(
     if not path.exists():
         raise FileNotFoundError(f"PRISM pairwise data not found at {path}")
 
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, sep="\t")
 
     if 'user_id' not in df.columns and 'interaction_id' in df.columns:
         df['user_id'] = df['interaction_id']

@@ -202,12 +202,12 @@ class TestSelectByIds:
         with pytest.raises(ValueError, match="not found"):
             select_by_ids(df, [1, 99])
 
-    def test_duplicate_rows_for_same_id(self):
-        """If a question_id appears multiple times, all rows are returned."""
+    def test_duplicate_rows_deduped(self):
+        """If a question_id appears multiple times, only one row is kept."""
         df = pd.DataFrame({
             'question_id': [1, 1, 2],
             'prompt': ['a', 'a', 'b'],
             'interaction_id': ['u1', 'u2', 'u3'],
         })
         result = select_by_ids(df, [1])
-        assert len(result) == 2
+        assert len(result) == 1

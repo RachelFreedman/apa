@@ -23,7 +23,7 @@ from apa.synthetic_prefs.eval_prefs import (
     load_prefs,
 )
 from apa.synthetic_prefs.sample_data import (
-    _load_prism_embeddings,
+    load_prism_embeddings,
     random_embeddings,
     sample_embeddings,
 )
@@ -85,7 +85,7 @@ def main():
     # --- PRISM & Random baselines (pre-computed embeddings, random users) ---
     n = args.n_baseline_users if args.n_baseline_users is not None else n_synth
     print(f"Sampling {n} PRISM and {n} Random users from pre-computed embeddings...", flush=True)
-    prism_all = _load_prism_embeddings()
+    prism_all = load_prism_embeddings()
     prism_n = sample_embeddings(prism_all, n, seed=args.seed)
     rand_n = random_embeddings(prism_all, n, seed=args.seed)
 

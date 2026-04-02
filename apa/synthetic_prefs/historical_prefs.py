@@ -216,8 +216,8 @@ def generate_single_preference(
             do_sample=True, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id,
         )
 
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    response = generated_text[len(comparison_prompt):].strip()
+    new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+    response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
     return parse_model_response(response)
 
@@ -434,7 +434,7 @@ def cmd_train(args) -> None:
     prefs_path = Path(args.preferences_file)
     if not prefs_path.exists():
         print(f"ERROR: Preferences file not found: {prefs_path}")
-        print("Generate preferences first: python -m apa.historical_prefs generate --century C013")
+        print("Generate preferences first: python -m apa.synthetic_prefs.historical_prefs generate --century C013")
         sys.exit(1)
 
     print(f"Loading preferences from {prefs_path}")

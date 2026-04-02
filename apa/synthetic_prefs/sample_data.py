@@ -170,7 +170,7 @@ def random_prefs_by_questions(
 # Embedding-level operations (no re-embedding needed)
 # ---------------------------------------------------------------------------
 
-def _load_prism_embeddings(device: str = "cpu") -> list[torch.Tensor]:
+def load_prism_embeddings(device: str = "cpu") -> list[torch.Tensor]:
     """Load pre-computed PRISM train_seen embeddings."""
     from apa.config import EMBEDDINGS_DIR
     from apa.load_prism import group_embeddings_by_user
@@ -267,7 +267,7 @@ def main():
 
     # --- embedding commands ---
     if args.command in ("sample-emb", "random-emb"):
-        embeddings = _load_prism_embeddings()
+        embeddings = load_prism_embeddings()
 
         if args.command == "sample-emb":
             data = sample_embeddings(embeddings, args.n, seed=args.seed)

@@ -56,6 +56,10 @@ def embed_and_index_preferences(
 
     user_ids = sorted(user_prefs.keys())
     embeddings = embed_preferences(user_prefs, model, tokenizer, device=device)
+    assert len(embeddings) == len(user_ids), (
+        f"embed_preferences returned {len(embeddings)} users but expected {len(user_ids)}; "
+        "iteration order may have changed"
+    )
     return user_ids, embeddings
 
 
@@ -221,9 +225,13 @@ class LoReScorer:
     Loads user vectors from any source (adapted, PRISM, historical) into a
     single registry, then scores prompt+response pairs for any registered user.
 
+    Methods:
+        score(user_id, prompt, response) — embed text and score (lazy-loads model)
+        score_embedding(user_id, embedding) — score a pre-computed embedding
+
     Usage:
         scorer = LoReScorer.from_checkpoint("/path/to/V_K8.pt")
-        scorer.load_adapted_users("/path/to/W_adapted_hist_top3_K8.pt")
+        scorer.load_adapted_users("/path/to/W_adapted_hist_top3.pt")
         score = scorer.score("hist_C013_01", "What is justice?", "Justice is...")
     """
 
@@ -257,7 +265,7 @@ class LoReScorer:
         user_mapping_path: str | Path | None = None,
     ) -> int:
         """Load PRISM users from W_seen_K*.pt."""
-        W = torch.load(W_path, map_location='cpu')
+        W = torch.load(W_path, map_location='cpu', weights_only=False)
 
         if user_mapping_path and Path(user_mapping_path).exists():
             with open(user_mapping_path, 'r') as f:
@@ -395,7 +403,7 @@ def main() -> None:
     log(f"Loading embedding model (device={device})...")
     model, tokenizer = get_embedding_model(device=device)
 
-    log(f"Embedding preferences ({n_pairs * 2} texts, ~{n_pairs * 2 * 0.5:.0f}s estimated)...")
+    log(f"Embedding preferences ({n_pairs * 2} texts)...")
     embed_start = time.time()
     user_ids, user_embeddings = embed_and_index_preferences(user_prefs, model, tokenizer, device=device)
     embed_time = time.time() - embed_start
@@ -443,14 +451,13 @@ def main() -> None:
         test_str = f"{r['test_accuracy']*100:>9.1f}%" if 'test_accuracy' in r else "       N/A"
         log(f"{user_id:<20} {r['n_train_prefs']:>11} {r['train_accuracy']*100:>9.1f}% {test_str}")
     log("-" * 80)
-    log(f"{'MEAN':<20} {'':>11} {stats['train_accuracy_mean']*100:>9.1f}%", )
-    if 'test_accuracy_mean' in stats:
-        log(f"{'':20} {'':>11} {'':>10} {stats['test_accuracy_mean']*100:>9.1f}%")
+    test_mean_str = f"{stats['test_accuracy_mean']*100:>9.1f}%" if 'test_accuracy_mean' in stats else "       N/A"
+    log(f"{'MEAN':<20} {'':>11} {stats['train_accuracy_mean']*100:>9.1f}% {test_mean_str}")
     log("")
 
     # --- Save ---
-    name = args.name or args.prefs_path.stem
-    output_path = Path(output_dir) / f"W_adapted_{name}_K{args.K}.pt"
+    name = args.name or f"{args.prefs_path.stem}_K{args.K}"
+    output_path = Path(output_dir) / f"W_adapted_{name}.pt"
     metadata = {
         'source': str(args.prefs_path),
         'K': args.K,

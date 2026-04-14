@@ -25,7 +25,7 @@ uv run python -m apa.lore_adapt \
     --learning_rate 0.5 \
     --test_frac 0.2 \
     --seed 42 \
-    --name "hist_top3_K${K}"
+    --name "hist_top3"
 
 echo ""
 echo "=== Done ==="

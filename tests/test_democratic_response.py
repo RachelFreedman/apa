@@ -168,7 +168,7 @@ class TestDemocraticInference:
             DemocraticInference(
                 scorer=scorer,
                 user_metadata=_fake_meta(scorer),
-                jury_sources={},
+                jury_manifest={},
                 methods=["not_a_method"],
             )
 
@@ -178,7 +178,7 @@ class TestDemocraticInference:
             DemocraticInference(
                 scorer=scorer,
                 user_metadata=_fake_meta(scorer),
-                jury_sources={},
+                jury_manifest={},
                 sampling="bogus",
             )
 
@@ -187,7 +187,7 @@ class TestDemocraticInference:
         inf = DemocraticInference(
             scorer=scorer,
             user_metadata=_fake_meta(scorer),
-            jury_sources={},
+            jury_manifest={},
         )
         with pytest.raises(ValueError, match="query or responses"):
             inf()
@@ -196,7 +196,7 @@ class TestDemocraticInference:
         _patch_embedding(monkeypatch)
         V = torch.randn(32, 4)
         scorer = LoReScorer(V)
-        inf = DemocraticInference(scorer=scorer, user_metadata={}, jury_sources={})
+        inf = DemocraticInference(scorer=scorer, user_metadata={}, jury_manifest={})
         with pytest.raises(RuntimeError, match="Jury is empty"):
             inf(responses=["A", "B"], responses_source="test")
 
@@ -206,7 +206,7 @@ class TestDemocraticInference:
         inf = DemocraticInference(
             scorer=scorer,
             user_metadata=_fake_meta(scorer),
-            jury_sources={"V": "fake", "sources": []},
+            jury_manifest={"V": "fake", "sources": []},
             m_voters=4,
             methods=["borda_count", "copeland"],
             sampling="random",  # bypass stratification for this fake fixture
@@ -256,7 +256,7 @@ class TestDemocraticInference:
         inf = DemocraticInference(
             scorer=scorer,
             user_metadata=_fake_meta(scorer),
-            jury_sources={"V": "fake", "sources": []},
+            jury_manifest={"V": "fake", "sources": []},
             m_voters=5,
             methods=["borda_count", "plurality"],
             sampling="random",
@@ -283,7 +283,7 @@ class TestDemocraticInference:
         inf = DemocraticInference(
             scorer=scorer,
             user_metadata=_fake_meta(scorer),
-            jury_sources={},
+            jury_manifest={},
             m_voters=3,
             sampling="random",
         )
@@ -391,7 +391,7 @@ class TestStratifiedJury:
         inf = DemocraticInference(
             scorer=scorer,
             user_metadata=meta,
-            jury_sources={},
+            jury_manifest={},
             m_voters=10,
             seed=0,
         )
@@ -399,3 +399,86 @@ class TestStratifiedJury:
         sampled_origins = [meta[uid]["origin"] for uid in result.sampled_user_ids]
         assert sampled_origins.count("prism") == 5
         assert sampled_origins.count("adapted") == 5
+
+
+class TestJurySourcesSelection:
+    """User-facing --jury_sources filter: draws evenly from named groups."""
+
+    def _pool(self):
+        V = torch.randn(16, 4)
+        scorer = LoReScorer(V)
+        meta = {}
+        # 8 PRISM, 4 C21, 3 C17, 6 C13 fake voters.
+        def _add(uid, period, origin):
+            scorer.user_registry[uid] = torch.randn(4)
+            meta[uid] = {"period": period, "ID": uid, "origin": origin}
+        for i in range(8):
+            _add(f"prism_{i}", "original", "prism")
+        for i in range(4):
+            _add(f"hist_C021_{i:02d}", "21C", "adapted")
+        for i in range(3):
+            _add(f"hist_C017_{i:02d}", "17C", "adapted")
+        for i in range(6):
+            _add(f"hist_C013_{i:02d}", "13C", "adapted")
+        return scorer, meta
+
+    def test_normalize_source_label(self):
+        from apa.democratic_response import _normalize_source_label
+        assert _normalize_source_label("prism") == "original"
+        assert _normalize_source_label("original") == "original"
+        assert _normalize_source_label("C21") == "21C"
+        assert _normalize_source_label("c21") == "21C"
+        assert _normalize_source_label("C017") == "17C"
+        assert _normalize_source_label("21C") == "21C"
+        assert _normalize_source_label("13c") == "13C"
+        assert _normalize_source_label("weird") == "weird"
+
+    def test_filters_and_balances(self, monkeypatch):
+        _patch_embedding(monkeypatch, D=16)
+        scorer, meta = self._pool()
+        inf = DemocraticInference(
+            scorer=scorer,
+            user_metadata=meta,
+            jury_manifest={},
+            m_voters=6,
+            jury_sources=["prism", "C21", "C17"],
+            seed=0,
+        )
+        result = inf(responses=["A", "B"], responses_source="test")
+        periods = [meta[uid]["period"] for uid in result.sampled_user_ids]
+        # Exactly 6 voters, 2 from each of the three named groups.
+        assert len(result.sampled_user_ids) == 6
+        assert periods.count("original") == 2
+        assert periods.count("21C") == 2
+        assert periods.count("17C") == 2
+        assert "13C" not in periods
+        # Audit log records the normalised jury_sources.
+        assert result.config["jury_sources"] == ["original", "21C", "17C"]
+
+    def test_empty_group_raises(self, monkeypatch):
+        _patch_embedding(monkeypatch, D=16)
+        scorer, meta = self._pool()
+        inf = DemocraticInference(
+            scorer=scorer,
+            user_metadata=meta,
+            jury_manifest={},
+            m_voters=4,
+            jury_sources=["prism", "C15"],  # no C15 voters available
+            seed=0,
+        )
+        with pytest.raises(ValueError, match="No voters in jury"):
+            inf(responses=["A", "B"], responses_source="test")
+
+    def test_default_unchanged_when_none(self, monkeypatch):
+        """With jury_sources=None, audit log's jury_sources is null."""
+        _patch_embedding(monkeypatch)
+        scorer = _fake_scorer()
+        inf = DemocraticInference(
+            scorer=scorer,
+            user_metadata=_fake_meta(scorer),
+            jury_manifest={},
+            m_voters=3,
+            sampling="random",
+        )
+        result = inf(responses=["A", "B", "C"])
+        assert result.config["jury_sources"] is None

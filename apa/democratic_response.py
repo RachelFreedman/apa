@@ -250,6 +250,27 @@ def load_query_cases(path: str | Path) -> list[QueryCase]:
 # =============================================================================
 
 _CENTURY_RE = re.compile(r"C(\d{2,3})")
+_SOURCE_ALIASES = {"prism": "original", "original": "original"}
+# Matches user-facing period labels: C21, C021, 21C, c21, 13c, etc.
+_PERIOD_LABEL_RE = re.compile(r"^\s*C?0*(\d{1,3})C?\s*$", re.IGNORECASE)
+
+
+def _normalize_source_label(label: str) -> str:
+    """Normalise a jury-source label to the internal 'period' form.
+
+    Accepts 'prism'/'original' and century variants like 'C21', 'C017',
+    '21C', '17c'. Returns 'original' or 'NC' (e.g. '21C'). Unknown
+    labels pass through unchanged.
+    """
+    s = label.strip()
+    if not s:
+        return s
+    if s.lower() in _SOURCE_ALIASES:
+        return _SOURCE_ALIASES[s.lower()]
+    m = _PERIOD_LABEL_RE.match(s)
+    if m:
+        return f"{int(m.group(1))}C"
+    return s
 
 
 def _period_for_user(user_id: str, origin: str) -> str:
@@ -368,7 +389,7 @@ class InferenceResult:
     responses_source: str  # "llm" or path to response file
     responses: list[str]
     response_embeddings_hash: str
-    jury_sources: dict[str, Any]
+    jury_manifest: dict[str, Any]
     sampled_user_ids: list[str]
     sampled_user_metadata: dict[str, dict]
     per_voter_scores: dict[str, list[float]]
@@ -441,12 +462,13 @@ class DemocraticInference:
         self,
         scorer: LoReScorer,
         user_metadata: dict[str, dict],
-        jury_sources: dict[str, Any],
+        jury_manifest: dict[str, Any],
         k_responses: int | None = None,
         m_voters: int | None = None,
         methods: str | Sequence[str] | None = None,
         sampling: str = "stratified",
         sampling_config: dict | None = None,
+        jury_sources: list[str] | None = None,
         seed: int | None = None,
         model: Any = None,
         tokenizer: Any = None,
@@ -454,7 +476,7 @@ class DemocraticInference:
         cfg = InferenceConfig()
         self.scorer = scorer
         self.user_metadata = user_metadata
-        self.jury_sources = jury_sources
+        self.jury_manifest = jury_manifest
         self.k_responses = cfg.k_responses if k_responses is None else k_responses
         self.m_voters = cfg.m_voters if m_voters is None else m_voters
 
@@ -479,6 +501,11 @@ class DemocraticInference:
         # Stratify on 'origin' by default (prism vs adapted → half/half jury).
         self.sampling_config = (
             dict(sampling_config) if sampling_config is not None else {"stratify_by": "origin"}
+        )
+        # When jury_sources is set, we'll override sampling to stratify by period
+        # on a filtered candidate pool (computed at call time).
+        self.jury_sources: list[str] | None = (
+            [_normalize_source_label(s) for s in jury_sources] if jury_sources else None
         )
         self.seed = seed
         self.model = model
@@ -530,13 +557,45 @@ class DemocraticInference:
         all_user_ids = self.scorer.get_user_ids()
         if not all_user_ids:
             raise RuntimeError("Jury is empty — no users loaded into the scorer.")
-        m = min(self.m_voters, len(all_user_ids))
-        sample_fn = SAMPLING_METHODS[self.sampling]
-        sample_config = dict(self.sampling_config)
-        if self.seed is not None:
-            sample_config["seed"] = self.seed
-        _log(f"Sampling {m} voters from {len(all_user_ids)} via '{self.sampling}'...")
-        sampled_user_ids = sample_fn(all_user_ids, self.user_metadata, m, sample_config)
+
+        if self.jury_sources:
+            # Restrict candidates to users whose period matches one of the
+            # requested groups, then stratified-sample evenly across groups.
+            requested = list(self.jury_sources)
+            pool = [
+                uid for uid in all_user_ids
+                if self.user_metadata.get(uid, {}).get("period") in requested
+            ]
+            by_group: dict[str, list[str]] = {g: [] for g in requested}
+            for uid in pool:
+                by_group[self.user_metadata[uid]["period"]].append(uid)
+            empty = [g for g, members in by_group.items() if not members]
+            if empty:
+                raise ValueError(
+                    f"No voters in jury for requested source(s) {empty}. "
+                    f"Available periods: "
+                    f"{sorted({m.get('period') for m in self.user_metadata.values()})}"
+                )
+            sampling_strategy = "stratified"
+            sample_fn = SAMPLING_METHODS[sampling_strategy]
+            sample_config = {"stratify_by": "period"}
+            if self.seed is not None:
+                sample_config["seed"] = self.seed
+            m = min(self.m_voters, len(pool))
+            _log(
+                f"Sampling {m} voters from {len(pool)} (filtered to "
+                f"{requested}) via stratified-by-period..."
+            )
+            sampled_user_ids = sample_fn(pool, self.user_metadata, m, sample_config)
+        else:
+            m = min(self.m_voters, len(all_user_ids))
+            sample_fn = SAMPLING_METHODS[self.sampling]
+            sample_config = dict(self.sampling_config)
+            if self.seed is not None:
+                sample_config["seed"] = self.seed
+            sampling_strategy = self.sampling
+            _log(f"Sampling {m} voters from {len(all_user_ids)} via '{self.sampling}'...")
+            sampled_user_ids = sample_fn(all_user_ids, self.user_metadata, m, sample_config)
 
         # 4. Per-voter scores and rankings.
         _log("Scoring per voter...")
@@ -587,7 +646,7 @@ class DemocraticInference:
             responses_source=responses_source,
             responses=list(responses),
             response_embeddings_hash=emb_hash,
-            jury_sources=self.jury_sources,
+            jury_manifest=self.jury_manifest,
             sampled_user_ids=list(sampled_user_ids),
             sampled_user_metadata=sampled_meta,
             per_voter_scores=per_voter_scores,
@@ -598,8 +657,9 @@ class DemocraticInference:
                 "k_responses": self.k_responses,
                 "m_voters": self.m_voters,
                 "methods": list(self.methods),
-                "sampling": self.sampling,
-                "sampling_config": dict(self.sampling_config),
+                "sampling": sampling_strategy,
+                "sampling_config": dict(sample_config),
+                "jury_sources": list(self.jury_sources) if self.jury_sources else None,
                 "seed": self.seed,
                 # The inference LLM only matters when WE generated responses.
                 # If responses were supplied (e.g. from a file), log None.
@@ -628,7 +688,7 @@ class DemocraticInference:
         return cls(
             scorer=scorer,
             user_metadata=user_metadata,
-            jury_sources=sources,
+            jury_manifest=sources,
             **kwargs,
         )
 
@@ -699,6 +759,11 @@ def main() -> None:
     parser.add_argument("--prism_users", type=str, default=None, help="Path to PRISM W_seen checkpoint.")
     parser.add_argument("--adapted_users", type=str, default=None,
                         help="Path to a W_adapted_*.pt checkpoint (comma-separated for multiple).")
+    parser.add_argument("--jury_sources", type=str, default=None,
+                        help="Comma-separated jury source labels (e.g. 'prism,C21,C17'). "
+                             "When set, the jury is drawn evenly from these groups only; "
+                             "overrides --sampling. Omit to use the default half PRISM / "
+                             "half adapted composition.")
     parser.add_argument("--seed", type=int, default=None, help="Random seed.")
     parser.add_argument("--log_file", type=str, default=None,
                         help=f"Path to write audit log JSON. Default: {_default_log_path().parent}/democratic_vote_<ts>.json")
@@ -716,6 +781,9 @@ def main() -> None:
     adapted_users: list[Path] | None = None
     if args.adapted_users:
         adapted_users = [Path(p.strip()) for p in args.adapted_users.split(",") if p.strip()]
+    jury_sources: list[str] | None = None
+    if args.jury_sources:
+        jury_sources = [s.strip() for s in args.jury_sources.split(",") if s.strip()]
 
     # Build jury.
     _log(f"Building jury (K={args.K})...")
@@ -728,11 +796,12 @@ def main() -> None:
         m_voters=args.m,
         methods=methods,
         sampling=args.sampling,
+        jury_sources=jury_sources,
         seed=args.seed,
     )
     n_voters = len(inference.scorer.get_user_ids())
     _log(f"Jury size: {n_voters} voters")
-    for src in inference.jury_sources.get("sources", []):
+    for src in inference.jury_manifest.get("sources", []):
         _log(f"  - {src['origin']}: {src['n_loaded']} from {src['path']}")
     if n_voters == 0:
         print("Error: jury is empty. Train LoRe and/or run lore_adapt first.", file=sys.stderr)

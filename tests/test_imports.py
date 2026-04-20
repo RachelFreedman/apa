@@ -63,8 +63,10 @@ def test_democratic_response():
     """Test democratic_response module."""
     from apa.democratic_response import (
         DemocraticInference,
-        VoterPool,
-        UserVoter,
+        InferenceResult,
+        QueryCase,
+        build_default_jury,
+        load_query_cases,
         generate_responses,
     )
     print("  democratic_response: OK")

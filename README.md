@@ -43,20 +43,18 @@ uv run python -m apa.train_lore_bases --K_list 0,1,8
 uv run python -m apa.train_lore_bases --K_list 0,1 --n_users 50
 ```
 
-### 3. Historical user vectors (optional)
+### 3. Adapted user vectors (optional, historical-persona jury members)
 
-#### 3a. Generate historical preferences
-
-```bash
-uv run python -m apa.synthetic_prefs.historical_prefs generate --century C013 --n_questions 500
-uv run python -m apa.synthetic_prefs.historical_prefs generate --century C017 --n_questions 500
-```
-
-#### 3b. Train historical user vectors
+Generate preference data from HistLlama personas, then adapt per-user
+W vectors against the LoRe basis via few-shot fitting.
 
 ```bash
-uv run python -m apa.synthetic_prefs.historical_prefs train --century C013
-uv run python -m apa.synthetic_prefs.historical_prefs train --century C017
+# 3a. Generate synthetic preferences across centuries and profiles.
+uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
+    --centuries C013 C017 C019 C021 --n-questions 20
+
+# 3b. Few-shot-adapt per-user W vectors from the generated JSONL.
+uv run python -m apa.lore_adapt hist_prefs_top3.jsonl --K 8
 ```
 
 ### 4. Run democratic inference

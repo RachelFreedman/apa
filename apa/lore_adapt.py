@@ -280,17 +280,31 @@ class LoReScorer:
 
         return W.shape[0]
 
-    def load_historical_users(self, directory: str | Path) -> int:
-        """Load historical users from per-user W_*.pt checkpoints."""
-        directory = Path(directory)
-        count = 0
-        for path in sorted(directory.glob("W_*.pt")):
-            checkpoint = torch.load(path, map_location='cpu', weights_only=False)
-            user_id = checkpoint.get('user_id', path.stem)
-            w = checkpoint['w']
-            self.user_registry[user_id] = w.float()
-            count += 1
-        return count
+    def _ensure_embedding_model(self) -> None:
+        """Lazy-load the Skywork reward embedding model + tokenizer."""
+        if self._embedding_model is None:
+            from apa.train_lore_bases import get_embedding_model
+            self._embedding_model, self._embedding_tokenizer = get_embedding_model()
+
+    def embed_texts(self, texts: list[str]) -> torch.Tensor:
+        """
+        Batched-embed a list of texts using the scorer's embedding model.
+
+        Lazy-loads the embedding model on first call. Returns a float32
+        tensor of shape (len(texts), embedding_dim). Intended for callers
+        that score many responses per user — more efficient than calling
+        ``score()`` once per (text, user) pair.
+        """
+        from apa.train_lore_bases import embed_texts as _embed_texts
+
+        self._ensure_embedding_model()
+        arr = _embed_texts(
+            texts,
+            model=self._embedding_model,
+            tokenizer=self._embedding_tokenizer,
+            show_progress=False,
+        )
+        return torch.tensor(arr, dtype=torch.float32)
 
     def score(self, user_id: str, prompt: str, response: str) -> float:
         """
@@ -315,12 +329,9 @@ class LoReScorer:
                 f"Registered users: {len(self.user_registry)}"
             )
 
-        from apa.train_lore_bases import (
-            get_embedding_model, _format_for_embedding, _extract_embedding,
-        )
+        from apa.train_lore_bases import _format_for_embedding, _extract_embedding
 
-        if self._embedding_model is None:
-            self._embedding_model, self._embedding_tokenizer = get_embedding_model()
+        self._ensure_embedding_model()
 
         text = _format_for_embedding(prompt, response, self._embedding_tokenizer)
         device = str(next(self._embedding_model.parameters()).device)

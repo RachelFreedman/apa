@@ -235,6 +235,10 @@ class TestLoReAccuracy:
         results = {}
         for K in [0, 1]:
             print(f"\n--- Training K={K} ---", flush=True)
+            # Seed before each K so LoReTrainer weight init is reproducible
+            # (K=1 seeds torch.rand/randn for self.W and self.V).
+            torch.manual_seed(42)
+            np.random.seed(42)
             results[K] = run_lore_for_rank(K, embeddings_and_model, tmp_path)
 
             # Print results

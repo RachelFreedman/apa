@@ -244,20 +244,3 @@ class TestLoReScorerLoadPrism:
         assert scorer.has_user("alice")
         assert scorer.has_user("bob")
         assert scorer.has_user("carol")
-
-
-class TestLoReScorerLoadHistorical:
-    def test_load_historical_users(self, tmp_path, V):
-        for i, uid in enumerate(["hist_C013", "hist_C017"]):
-            checkpoint = {
-                'user_id': uid,
-                'century': f"C0{13 + i * 4}",
-                'w': torch.randn(K),
-            }
-            torch.save(checkpoint, tmp_path / f"W_{uid}.pt")
-
-        scorer = LoReScorer(V)
-        count = scorer.load_historical_users(tmp_path)
-        assert count == 2
-        assert scorer.has_user("hist_C013")
-        assert scorer.has_user("hist_C017")

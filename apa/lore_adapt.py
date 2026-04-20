@@ -280,18 +280,6 @@ class LoReScorer:
 
         return W.shape[0]
 
-    def load_historical_users(self, directory: str | Path) -> int:
-        """Load historical users from per-user W_*.pt checkpoints."""
-        directory = Path(directory)
-        count = 0
-        for path in sorted(directory.glob("W_*.pt")):
-            checkpoint = torch.load(path, map_location='cpu', weights_only=False)
-            user_id = checkpoint.get('user_id', path.stem)
-            w = checkpoint['w']
-            self.user_registry[user_id] = w.float()
-            count += 1
-        return count
-
     def score(self, user_id: str, prompt: str, response: str) -> float:
         """
         Score a prompt+response pair for a given user.

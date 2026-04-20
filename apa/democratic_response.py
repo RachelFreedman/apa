@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import random
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -248,6 +249,26 @@ def load_query_cases(path: str | Path) -> list[QueryCase]:
 # Jury construction
 # =============================================================================
 
+_CENTURY_RE = re.compile(r"C(\d{2,3})")
+
+
+def _period_for_user(user_id: str, origin: str) -> str:
+    """
+    Derive a coarse 'period' tag for a voter.
+
+    - PRISM users → 'original' (the dataset the V basis was trained on).
+    - Adapted users whose IDs encode a century (e.g. 'hist_C013_01') →
+      '13C', '14C', ... (strip the leading zeros).
+    - Anything else → 'other'.
+    """
+    if origin == "prism":
+        return "original"
+    m = _CENTURY_RE.search(user_id)
+    if m:
+        return f"{int(m.group(1))}C"
+    return "other"
+
+
 def build_default_jury(
     K: int = 8,
     V_checkpoint: Path | str | None = None,
@@ -260,17 +281,22 @@ def build_default_jury(
     Sources loaded (all optional — silently skipped if missing):
       - V basis: V_K{K}.pt
       - PRISM users: W_seen_K{K}.pt (+ user_to_idx.json if present)
-      - Adapted users: all W_adapted_*K{K}*.pt under MODELS_DIR
+      - Adapted users: W_adapted_hist_top3_K{K}_K{K}.pt by default
+        (the curated 27-user "top-3 per century" adaptation); callers
+        may override with a specific path or list of paths.
 
     Note: legacy per-century historical W_C*.pt files are intentionally not
     loaded — they are artifacts of earlier training code and have been
     superseded by the adapted-user pipeline.
 
+    Per-voter metadata carries:
+      - 'period': 'original' for PRISM, 'NC' for adapted (e.g. '13C').
+      - 'ID': the user ID (traceable back to preference files).
+      - 'origin': 'prism' | 'adapted' (used for stratified sampling).
+      - 'checkpoint': path the W vector was loaded from.
+
     Returns:
         (scorer, user_metadata, sources_summary)
-
-        user_metadata: {user_id: {"source": "prism"|"adapted", "checkpoint": str, ...}}
-        sources_summary: {"V": str, "sources": [{"name": ..., "path": ..., "n_loaded": int}]}
     """
     V_checkpoint = Path(V_checkpoint) if V_checkpoint else MODELS_DIR / f"V_K{K}.pt"
     if not V_checkpoint.exists():
@@ -292,12 +318,18 @@ def build_default_jury(
         )
         new = set(scorer.get_user_ids()) - before
         for uid in new:
-            user_metadata[uid] = {"source": "prism", "checkpoint": str(prism_path)}
-        sources.append({"name": "prism", "path": str(prism_path), "n_loaded": n})
+            user_metadata[uid] = {
+                "period": _period_for_user(uid, "prism"),
+                "ID": uid,
+                "origin": "prism",
+                "checkpoint": str(prism_path),
+            }
+        sources.append({"origin": "prism", "path": str(prism_path), "n_loaded": n})
         before = set(scorer.get_user_ids())
 
     if adapted_users is None:
-        adapted_paths = sorted(MODELS_DIR.glob(f"W_adapted_*K{K}*.pt"))
+        default_adapted = MODELS_DIR / f"W_adapted_hist_top3_K{K}_K{K}.pt"
+        adapted_paths = [default_adapted] if default_adapted.exists() else []
     elif isinstance(adapted_users, (str, Path)):
         adapted_paths = [Path(adapted_users)]
     else:
@@ -309,8 +341,13 @@ def build_default_jury(
         n = scorer.load_adapted_users(path)
         new = set(scorer.get_user_ids()) - before
         for uid in new:
-            user_metadata[uid] = {"source": "adapted", "checkpoint": str(path)}
-        sources.append({"name": "adapted", "path": str(path), "n_loaded": n})
+            user_metadata[uid] = {
+                "period": _period_for_user(uid, "adapted"),
+                "ID": uid,
+                "origin": "adapted",
+                "checkpoint": str(path),
+            }
+        sources.append({"origin": "adapted", "path": str(path), "n_loaded": n})
         before = set(scorer.get_user_ids())
 
     summary = {"V": str(V_checkpoint), "K": K, "sources": sources}
@@ -336,6 +373,7 @@ class InferenceResult:
     sampled_user_metadata: dict[str, dict]
     per_voter_scores: dict[str, list[float]]
     per_voter_rankings: dict[str, list[int]]
+    average_ranks: list[float]  # mean 1-indexed rank per response (lower = preferred)
     aggregations: dict[str, dict]  # {method: {"ranking": [...], "winner_idx": int}}
     config: dict[str, Any]
 
@@ -407,7 +445,8 @@ class DemocraticInference:
         k_responses: int | None = None,
         m_voters: int | None = None,
         methods: str | Sequence[str] | None = None,
-        sampling: str = "random",
+        sampling: str = "stratified",
+        sampling_config: dict | None = None,
         seed: int | None = None,
         model: Any = None,
         tokenizer: Any = None,
@@ -437,6 +476,10 @@ class DemocraticInference:
                 f"Available: {list(SAMPLING_METHODS)}"
             )
         self.sampling = sampling
+        # Stratify on 'origin' by default (prism vs adapted → half/half jury).
+        self.sampling_config = (
+            dict(sampling_config) if sampling_config is not None else {"stratify_by": "origin"}
+        )
         self.seed = seed
         self.model = model
         self.tokenizer = tokenizer
@@ -468,7 +511,8 @@ class DemocraticInference:
             torch.manual_seed(self.seed)
 
         # 1. Get responses.
-        if responses is None:
+        generated_by_llm = responses is None
+        if generated_by_llm:
             self._ensure_llm()
             _log(f"Generating {self.k_responses} responses...")
             responses = generate_responses(
@@ -488,7 +532,9 @@ class DemocraticInference:
             raise RuntimeError("Jury is empty — no users loaded into the scorer.")
         m = min(self.m_voters, len(all_user_ids))
         sample_fn = SAMPLING_METHODS[self.sampling]
-        sample_config = {"seed": self.seed} if self.seed is not None else {}
+        sample_config = dict(self.sampling_config)
+        if self.seed is not None:
+            sample_config["seed"] = self.seed
         _log(f"Sampling {m} voters from {len(all_user_ids)} via '{self.sampling}'...")
         sampled_user_ids = sample_fn(all_user_ids, self.user_metadata, m, sample_config)
 
@@ -504,6 +550,19 @@ class DemocraticInference:
             per_voter_scores[uid] = scores
             ranking = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
             per_voter_rankings[uid] = ranking
+
+        # Average 1-indexed rank per response across sampled voters
+        # (response i's rank = position_in_ranking + 1).
+        n_responses = embeddings.shape[0]
+        if per_voter_rankings:
+            rank_sums = [0.0] * n_responses
+            for ranking in per_voter_rankings.values():
+                for pos, resp_idx in enumerate(ranking):
+                    rank_sums[resp_idx] += pos + 1
+            n_voters = len(per_voter_rankings)
+            average_ranks = [s / n_voters for s in rank_sums]
+        else:
+            average_ranks = [float("nan")] * n_responses
 
         # 5. Aggregate for each method.
         _log(f"Aggregating via methods: {self.methods}")
@@ -533,14 +592,20 @@ class DemocraticInference:
             sampled_user_metadata=sampled_meta,
             per_voter_scores=per_voter_scores,
             per_voter_rankings=per_voter_rankings,
+            average_ranks=average_ranks,
             aggregations=aggregations,
             config={
                 "k_responses": self.k_responses,
                 "m_voters": self.m_voters,
                 "methods": list(self.methods),
                 "sampling": self.sampling,
+                "sampling_config": dict(self.sampling_config),
                 "seed": self.seed,
-                "inference_llm": InferenceLLMConfig().model_name,
+                # The inference LLM only matters when WE generated responses.
+                # If responses were supplied (e.g. from a file), log None.
+                "inference_llm": (
+                    InferenceLLMConfig().model_name if generated_by_llm else None
+                ),
             },
         )
         return result
@@ -584,6 +649,8 @@ def _print_result_summary(result: InferenceResult, show_all: bool) -> None:
         print(f"Query: {q}")
     print(f"Responses source: {result.responses_source}")
     print(f"Responses: {len(result.responses)} | Voters: {len(result.sampled_user_ids)}")
+    print("Average rank per response (1 = best): "
+          + ", ".join(f"#{i + 1}={r:.2f}" for i, r in enumerate(result.average_ranks)))
     print()
     for method, info in result.aggregations.items():
         idx = info["winner_idx"]
@@ -624,9 +691,9 @@ def main() -> None:
                         help="Number of voters to sample from the jury.")
     parser.add_argument("--methods", type=str, default=InferenceConfig().aggregate_strategy,
                         help="Comma-separated aggregation methods (borda_count,plurality,copeland,instant_runoff).")
-    parser.add_argument("--sampling", type=str, default="random",
+    parser.add_argument("--sampling", type=str, default="stratified",
                         choices=list(SAMPLING_METHODS),
-                        help="Voter sampling strategy.")
+                        help="Voter sampling strategy (default: stratified on 'origin' — half PRISM / half adapted).")
     parser.add_argument("--K", type=int, default=8, help="LoRe rank for default jury.")
     parser.add_argument("--V_checkpoint", type=str, default=None, help="Path to V basis checkpoint.")
     parser.add_argument("--prism_users", type=str, default=None, help="Path to PRISM W_seen checkpoint.")
@@ -666,7 +733,7 @@ def main() -> None:
     n_voters = len(inference.scorer.get_user_ids())
     _log(f"Jury size: {n_voters} voters")
     for src in inference.jury_sources.get("sources", []):
-        _log(f"  - {src['name']}: {src['n_loaded']} from {src['path']}")
+        _log(f"  - {src['origin']}: {src['n_loaded']} from {src['path']}")
     if n_voters == 0:
         print("Error: jury is empty. Train LoRe and/or run lore_adapt first.", file=sys.stderr)
         sys.exit(1)

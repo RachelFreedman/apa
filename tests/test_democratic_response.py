@@ -33,8 +33,12 @@ def _fake_scorer(n_users: int = 5, D: int = 32, K: int = 4) -> LoReScorer:
     return scorer
 
 
-def _fake_meta(scorer: LoReScorer, source: str = "prism") -> dict[str, dict]:
-    return {uid: {"source": source, "checkpoint": "fake"} for uid in scorer.get_user_ids()}
+def _fake_meta(scorer: LoReScorer, origin: str = "prism") -> dict[str, dict]:
+    period = "original" if origin == "prism" else "13C"
+    return {
+        uid: {"period": period, "ID": uid, "origin": origin, "checkpoint": "fake"}
+        for uid in scorer.get_user_ids()
+    }
 
 
 def _patch_embedding(monkeypatch, D: int = 32):
@@ -205,6 +209,7 @@ class TestDemocraticInference:
             jury_sources={"V": "fake", "sources": []},
             m_voters=4,
             methods=["borda_count", "copeland"],
+            sampling="random",  # bypass stratification for this fake fixture
             seed=42,
         )
         result = inf(responses=["A", "B", "C"], responses_source="unit-test")
@@ -231,6 +236,18 @@ class TestDemocraticInference:
         assert result.response_embeddings_hash
         assert result.config["seed"] == 42
         assert result.config["methods"] == ["borda_count", "copeland"]
+        # inference_llm is None when we didn't call the LLM.
+        assert result.config["inference_llm"] is None
+        # Average rank: length matches responses, values in [1, n_responses].
+        assert len(result.average_ranks) == 3
+        assert all(1.0 <= r <= 3.0 for r in result.average_ranks)
+        # And the sum of (average_rank * n_voters) over all responses equals
+        # the total rank mass: 1+2+3 per voter, times n_voters.
+        total = sum(result.average_ranks) * len(result.sampled_user_ids)
+        assert abs(total - len(result.sampled_user_ids) * (1 + 2 + 3)) < 1e-6
+        # Per-voter metadata uses the new period/ID schema.
+        first_meta = next(iter(result.sampled_user_metadata.values()))
+        assert "period" in first_meta and "ID" in first_meta
 
     def test_vote_is_reconstructable_from_audit_log(self, monkeypatch, tmp_path):
         """The persisted audit log should let us re-run the aggregation and match."""
@@ -242,6 +259,7 @@ class TestDemocraticInference:
             jury_sources={"V": "fake", "sources": []},
             m_voters=5,
             methods=["borda_count", "plurality"],
+            sampling="random",
             seed=7,
         )
         result = inf(query="Q?", responses=["A", "B", "C", "D"], responses_source="test", query_id=42)
@@ -267,6 +285,7 @@ class TestDemocraticInference:
             user_metadata=_fake_meta(scorer),
             jury_sources={},
             m_voters=3,
+            sampling="random",
         )
         result = inf(responses=["A", "B", "C"])
         # Default from InferenceConfig is borda_count.
@@ -322,10 +341,61 @@ class TestBuildDefaultJury:
         )
 
         assert len(scorer.get_user_ids()) == 5  # 3 PRISM + 2 adapted
-        # Metadata tags each user with their source.
-        sources = {v["source"] for v in meta.values()}
-        assert sources == {"prism", "adapted"}
-        # Summary records both sources.
-        summary_names = [s["name"] for s in summary["sources"]]
-        assert "prism" in summary_names
-        assert "adapted" in summary_names
+        # Metadata tags each user with origin, period, and ID.
+        origins = {v["origin"] for v in meta.values()}
+        assert origins == {"prism", "adapted"}
+        for uid, m in meta.items():
+            assert m["ID"] == uid
+            assert "period" in m
+        # PRISM users have period='original'; adapted users have derived period.
+        prism_periods = {m["period"] for m in meta.values() if m["origin"] == "prism"}
+        assert prism_periods == {"original"}
+        # Summary records origin (no longer 'name').
+        summary_origins = [s["origin"] for s in summary["sources"]]
+        assert "prism" in summary_origins
+        assert "adapted" in summary_origins
+
+    def test_adapted_user_period_from_id(self):
+        """hist_CNNN_ID → 'NC' period."""
+        from apa.democratic_response import _period_for_user
+        assert _period_for_user("hist_C013_01", "adapted") == "13C"
+        assert _period_for_user("hist_C017_02", "adapted") == "17C"
+        assert _period_for_user("hist_C021_09", "adapted") == "21C"
+        assert _period_for_user("prism_user_42", "prism") == "original"
+        assert _period_for_user("weird_id", "adapted") == "other"
+
+
+class TestStratifiedJury:
+    """Sanity-check the default half-PRISM/half-adapted sampling."""
+
+    def test_stratified_by_origin_gives_balanced_jury(self, monkeypatch):
+        _patch_embedding(monkeypatch)
+        # 10 PRISM + 10 adapted fake voters.
+        V = torch.randn(32, 4)
+        scorer = LoReScorer(V)
+        for i in range(10):
+            scorer.user_registry[f"prism_user_{i}"] = torch.randn(4)
+        for i in range(10):
+            scorer.user_registry[f"hist_C013_{i:02d}"] = torch.randn(4)
+        meta = {}
+        for uid in scorer.get_user_ids():
+            origin = "prism" if uid.startswith("prism") else "adapted"
+            meta[uid] = {
+                "period": "original" if origin == "prism" else "13C",
+                "ID": uid,
+                "origin": origin,
+            }
+
+        # Default sampling is stratified on 'origin' with m_voters=10 →
+        # exactly 5 prism + 5 adapted.
+        inf = DemocraticInference(
+            scorer=scorer,
+            user_metadata=meta,
+            jury_sources={},
+            m_voters=10,
+            seed=0,
+        )
+        result = inf(responses=["A", "B"], responses_source="test")
+        sampled_origins = [meta[uid]["origin"] for uid in result.sampled_user_ids]
+        assert sampled_origins.count("prism") == 5
+        assert sampled_origins.count("adapted") == 5

@@ -432,23 +432,11 @@ def _embed_responses(
     scorer: LoReScorer,
 ) -> torch.Tensor:
     """Embed (query, response) pairs once for all voters."""
-    from apa.train_lore_bases import embed_texts, get_embedding_model
-
-    if scorer._embedding_model is None:
-        scorer._embedding_model, scorer._embedding_tokenizer = get_embedding_model()
-
     if query is not None:
         texts = [f"{query}\n\n{r}" for r in responses]
     else:
         texts = list(responses)
-
-    arr = embed_texts(
-        texts,
-        model=scorer._embedding_model,
-        tokenizer=scorer._embedding_tokenizer,
-        show_progress=False,
-    )
-    return torch.tensor(arr, dtype=torch.float32)
+    return scorer.embed_texts(texts)
 
 
 # =============================================================================
@@ -578,9 +566,9 @@ class DemocraticInference:
                 )
             sampling_strategy = "stratified"
             sample_fn = SAMPLING_METHODS[sampling_strategy]
+            # Seeding is handled globally via random.seed() at the top of
+            # __call__; sampler functions don't read a 'seed' config key.
             sample_config = {"stratify_by": "period"}
-            if self.seed is not None:
-                sample_config["seed"] = self.seed
             m = min(self.m_voters, len(pool))
             _log(
                 f"Sampling {m} voters from {len(pool)} (filtered to "
@@ -591,8 +579,6 @@ class DemocraticInference:
             m = min(self.m_voters, len(all_user_ids))
             sample_fn = SAMPLING_METHODS[self.sampling]
             sample_config = dict(self.sampling_config)
-            if self.seed is not None:
-                sample_config["seed"] = self.seed
             sampling_strategy = self.sampling
             _log(f"Sampling {m} voters from {len(all_user_ids)} via '{self.sampling}'...")
             sampled_user_ids = sample_fn(all_user_ids, self.user_metadata, m, sample_config)

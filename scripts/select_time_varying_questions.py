@@ -24,6 +24,9 @@ import json
 import re
 from pathlib import Path
 
+import pandas as pd
+
+from apa.config import HISTORICAL_PREFS_DATA
 from apa.load_prism import load_prism_pairwise
 
 # Topic buckets: each bucket is a list of regex-ready lowercase substrings.
@@ -171,6 +174,8 @@ def main() -> None:
                         help="Max prompt character length")
     parser.add_argument("--min-len", type=int, default=20,
                         help="Min prompt character length")
+    parser.add_argument("--controversy-only", action="store_true",
+                        help="Keep only conversation_type == 'controversy guided'")
     args = parser.parse_args()
 
     df = load_prism_pairwise()
@@ -180,6 +185,34 @@ def main() -> None:
     df_unique = df.drop_duplicates(subset=["question_id"]).copy()
     print(f"Unique questions: {len(df_unique)}")
 
+    # Join in conversation_type + per-question score spread from the richer
+    # questions.csv. conversation_type is PRISM's native disagreement signal:
+    # "controversy guided" prompts were explicitly elicited as controversial
+    # topics, "values guided" were elicited as values-laden, "unguided" had
+    # no such instruction. Score spread is the range of the single user's
+    # own ratings across response options — small spread means the user
+    # found the pair hard to rank (a weak within-user ambiguity proxy).
+    q_all = pd.read_csv(HISTORICAL_PREFS_DATA / "prism" / "questions.csv", sep="\t")
+    score_cols = ["response_A_score", "response_B_score", "response_C_score", "response_D_score"]
+    spreads: list[float | None] = []
+    for _, row in q_all[score_cols].iterrows():
+        vals = row.dropna().values
+        spreads.append(float(vals.max() - vals.min()) if len(vals) >= 2 else None)
+    q_all = q_all.assign(score_spread=spreads)
+    meta = q_all[["question_id", "conversation_type", "score_spread"]]
+    df_unique = df_unique.merge(meta, on="question_id", how="left")
+    print("conversation_type distribution (unique questions):")
+    print(df_unique["conversation_type"].value_counts().to_string())
+
+    # Disagreement weight from PRISM's conversation_type. "controversy guided"
+    # is PRISM's explicit "this topic is controversial" label; "values guided"
+    # targets strong-values prompts; "unguided" has no such intent.
+    CTYPE_WEIGHT = {
+        "controversy guided": 3,
+        "values guided": 1,
+        "unguided": 0,
+    }
+
     kept: list[dict] = []
     for _, row in df_unique.iterrows():
         prompt = str(row["prompt"]).strip()
@@ -187,24 +220,37 @@ def main() -> None:
             continue
         if looks_modern_taskish(prompt):
             continue
-        score, buckets = score_prompt(prompt)
-        if score < args.min_score:
+        topic_score, buckets = score_prompt(prompt)
+        if topic_score < args.min_score:
             continue
+        ctype = row.get("conversation_type")
+        disagree_score = CTYPE_WEIGHT.get(ctype, 0)
+        if args.controversy_only and ctype != "controversy guided":
+            continue
+        # Combined rank: topic diversity + PRISM disagreement signal.
+        combined = topic_score + disagree_score
         kept.append({
             "question_id": int(row["question_id"]),
             "prompt": prompt,
             "response_1": row["response_1"],
             "response_2": row["response_2"],
-            "topic_score": score,
+            "topic_score": topic_score,
             "topics": buckets,
+            "conversation_type": ctype,
+            "score_spread": row.get("score_spread"),
+            "disagree_score": disagree_score,
+            "combined_score": combined,
         })
 
-    kept.sort(key=lambda r: (-r["topic_score"], r["question_id"]))
+    # Sort by combined score, tiebreak by topic_score, then qid.
+    kept.sort(key=lambda r: (-r["combined_score"], -r["topic_score"], r["question_id"]))
     print(f"Candidates after filtering: {len(kept)}")
-    print("Score distribution (top scores first):")
+    print("Combined-score distribution (top first):")
     from collections import Counter
-    for s, c in sorted(Counter(r["topic_score"] for r in kept).items(), reverse=True):
-        print(f"  score={s}: {c}")
+    for s, c in sorted(Counter(r["combined_score"] for r in kept).items(), reverse=True):
+        print(f"  combined={s}: {c}")
+    print("Conversation-type breakdown among candidates:")
+    print(Counter(r["conversation_type"] for r in kept))
 
     selected = kept[: args.n]
     print(f"Writing top {len(selected)} to {args.out}")
@@ -220,7 +266,9 @@ def main() -> None:
     for i in sample_idx:
         r = selected[i]
         topics = ",".join(sorted(set(r["topics"])))
-        print(f"  [{i}] qid={r['question_id']} score={r['topic_score']} topics={topics}")
+        print(f"  [{i}] qid={r['question_id']} combined={r['combined_score']} "
+              f"(topic={r['topic_score']} disagree={r['disagree_score']}) "
+              f"ctype={r['conversation_type']} topics={topics}")
         print(f"      {r['prompt'][:150]}")
 
 

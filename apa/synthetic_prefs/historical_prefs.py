@@ -397,16 +397,37 @@ def results_to_jsonl_records(results: list[dict]) -> list[dict]:
     """Convert :func:`generate_historical_preferences` output to eval_prefs JSONL format.
 
     Each result with ``final_preference`` in ``{'1', '2'}`` becomes one record
-    with keys ``user_id``, ``prompt``, ``chosen``, ``rejected``.  Results with
-    ``final_preference == '-1'`` (ambiguous) are skipped.
+    with the load-bearing keys ``user_id``, ``prompt``, ``chosen``,
+    ``rejected`` (consumed by :func:`apa.synthetic_prefs.eval_prefs.load_prefs_jsonl`
+    and :mod:`apa.lore_adapt`), plus the soft signal:
+
+      - ``prob_chosen_original``, ``prob_rejected_original``
+      - ``prob_chosen_reversed``, ``prob_rejected_reversed``
+      - ``soft_preference_chosen`` — mean P(chosen wins) across the two
+        orderings, in [0, 1].
+      - ``consistency`` — 1.0 if both orderings agree, else 0.0.
+
+    Records with ``final_preference == '-1'`` (orderings disagree) are
+    skipped, matching prior behaviour.  Downstream readers that select only
+    the four required keys ignore the extra fields.
     """
     records = []
     for r in results:
         pref = r.get("final_preference")
         if pref == "1":
             chosen, rejected = r["response_1"], r["response_2"]
+            prob_chosen_o = r.get("prob_1_original", 0.0)
+            prob_rejected_o = r.get("prob_2_original", 0.0)
+            prob_chosen_r = r.get("prob_2_reversed", 0.0)
+            prob_rejected_r = r.get("prob_1_reversed", 0.0)
+            soft_chosen = r.get("soft_preference_1", 0.5)
         elif pref == "2":
             chosen, rejected = r["response_2"], r["response_1"]
+            prob_chosen_o = r.get("prob_2_original", 0.0)
+            prob_rejected_o = r.get("prob_1_original", 0.0)
+            prob_chosen_r = r.get("prob_1_reversed", 0.0)
+            prob_rejected_r = r.get("prob_2_reversed", 0.0)
+            soft_chosen = 1.0 - r.get("soft_preference_1", 0.5)
         else:
             continue
         records.append({
@@ -414,6 +435,12 @@ def results_to_jsonl_records(results: list[dict]) -> list[dict]:
             "prompt": r["prompt"],
             "chosen": chosen,
             "rejected": rejected,
+            "prob_chosen_original": prob_chosen_o,
+            "prob_rejected_original": prob_rejected_o,
+            "prob_chosen_reversed": prob_chosen_r,
+            "prob_rejected_reversed": prob_rejected_r,
+            "soft_preference_chosen": soft_chosen,
+            "consistency": r.get("consistency", 1.0),
         })
     return records
 

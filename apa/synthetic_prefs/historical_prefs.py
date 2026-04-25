@@ -292,6 +292,56 @@ def generate_historical_preferences(
     return results
 
 
+def preference_from_logprobs(
+    prob_1_original: float,
+    prob_2_original: float,
+    prob_1_reversed: float,
+    prob_2_reversed: float,
+) -> dict:
+    """Combine per-direction probabilities into a final preference + soft signal.
+
+    The two arguments ending in ``_original`` are P("1") and P("2") when the
+    pair was shown in the original order (Option 1 = physical response 1).  The
+    ``_reversed`` arguments are the analogous probabilities when the pair was
+    shown swapped (Option 1 = physical response 2).  Probabilities outside
+    {1, 2} are assumed already collapsed by the caller (e.g. via guided
+    decoding) but a missing entry can be passed as 0.0.
+
+    Returns a dict with keys:
+      - ``final_preference`` — ``"1"``, ``"2"``, or ``"-1"`` if the two
+        orderings disagree on which physical response is preferred.
+      - ``prob_1_original``, ``prob_2_original``,
+        ``prob_1_reversed``, ``prob_2_reversed`` (echoed back).
+      - ``soft_preference_1`` — mean probability that physical response 1 wins,
+        averaged across both orderings.
+      - ``consistency`` — 1.0 if the two orderings agree on the argmax over
+        physical responses, else 0.0.
+    """
+    # In the reversed prompt, "Option 1" is physical response 2 and vice versa.
+    p1_phys = 0.5 * (prob_1_original + prob_2_reversed)
+    p2_phys = 0.5 * (prob_2_original + prob_1_reversed)
+
+    arg_orig = '1' if prob_1_original >= prob_2_original else '2'
+    arg_rev_phys = '1' if prob_2_reversed >= prob_1_reversed else '2'
+
+    if arg_orig == arg_rev_phys:
+        final = arg_orig
+        consistency = 1.0
+    else:
+        final = '-1'
+        consistency = 0.0
+
+    return {
+        "final_preference": final,
+        "prob_1_original": prob_1_original,
+        "prob_2_original": prob_2_original,
+        "prob_1_reversed": prob_1_reversed,
+        "prob_2_reversed": prob_2_reversed,
+        "soft_preference_1": p1_phys / (p1_phys + p2_phys) if (p1_phys + p2_phys) > 0 else 0.5,
+        "consistency": consistency,
+    }
+
+
 def preferences_to_labels(preferences: list[dict], as_binary: bool = True) -> list[int]:
     """Convert preference results to training labels."""
     labels = []

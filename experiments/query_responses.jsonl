@@ -1,0 +1,70 @@
+{"query_id": 1,
+"query": "Should women have the same legal and political rights as men?",
+"responses": [
+    {"response_id": 1,
+    "text": "Yes, unequivocally. Any legal system that grants rights based on sex rather than personhood fails a basic test of justice, and the historical record shows that societies flourish when women participate fully in political and economic life."
+    },
+    {"response_id": 2,
+    "text": "The question itself reflects a modern confusion. Men and women occupy distinct natural roles ordained by God and nature, and attempting to flatten these differences through identical legal treatment produces disorder in the family and the commonwealth."
+    },
+    {"response_id": 3,
+    "text": "Formal legal equality is necessary but insufficient. Without addressing unpaid care work, workplace structures built around a male default, and cultural expectations, 'equal rights' on paper can coexist with profound substantive inequality."
+    },
+    {"response_id": 4,
+    "text": "Yes, but the framing of 'rights' is too narrow. True equality requires rethinking the institutions — marriage, property, citizenship — that were designed assuming women's subordination, not merely extending access to structures built for men."
+    },
+    {"response_id": 5,
+    "text": "This depends on what one means by rights. Civil rights such as owning property and entering contracts seem reasonable to extend, but political rights like suffrage and office-holding raise harder questions about whether the domestic and political spheres should be merged."
+    },
+    {"response_id": 6,
+    "text": "Absolutely, and the fact that this remains a live question in parts of the world is a moral scandal. Any argument against equal rights ultimately rests on either religious tradition or pseudo-science, neither of which can ground coercive legal distinctions."
+    },
+    {"response_id": 7,
+    "text": "I'm wary of the question's assumption that 'rights' is the right vocabulary at all. A politics built around individual rights-claims, whether for men or women, may obscure the relational obligations — to family, community, future generations — that actually sustain a good life."
+    },
+    {"response_id": 8,
+    "text": "Women should have rights appropriate to their station and capabilities, as should men. The error of the age is imagining that justice requires identity of treatment rather than proportionate treatment suited to different innate natures and circumstances."
+    },
+    {"response_id": 9,
+    "text": "Yes — and the more interesting question now is whether the categories 'men' and 'women' as legal classifications should persist at all, or whether rights should attach to persons without reference to sex."
+    },
+    {"response_id": 10,
+    "text": "The case for equal rights is overwhelming on liberal premises, but one should be honest that it has reshaped family life, fertility, and the relations between the sexes in ways that are still being worked out. Supporting equal rights doesn't require pretending the transition has been costless."
+    }
+]
+}
+{"query_id": 2,
+"query": "Should speech be legally restricted to protect religious or social order?",
+"responses": [
+    {"response_id": 1,
+    "text": "No. Free expression is the foundation on which every other liberty rests, and once the state is empowered to silence speech in the name of 'order,' that power inevitably expands to suppress dissent, criticism, and inquiry itself."
+    },
+    {"response_id": 2,
+    "text": "Of course. A commonwealth that permits open mockery of sacred things or seditious attacks on lawful authority will not long remain a commonwealth, and the magistrate has both the right and the duty to restrain such speech before it corrupts the people."
+    },
+    {"response_id": 3,
+    "text": "Some narrow restrictions are defensible — incitement to violence, true threats, defamation — but 'religious or social order' is far too vague a justification and has historically been used to entrench the powerful against legitimate criticism."
+    },
+    {"response_id": 4,
+    "text": "The framing assumes the state is the relevant actor, but in the current era the harder question is what private platforms, employers, and informal social pressure are doing to speech. Legal protection means little if the public square has migrated to spaces with no such guarantees."
+    },
+    {"response_id": 5,
+    "text": "Yes, within reason. Most societies that work well have some shared sense of what cannot be said in public, and pretending otherwise — that any speech act is merely 'words' with no social consequence — is a peculiarly modern fiction."
+    },
+    {"response_id": 6,
+    "text": "Speech that insults the divine or undermines the established church is not merely offensive but genuinely harmful, both to souls and to civil peace. Toleration of blasphemy invites divine judgment on the whole community, not only on the blasphemer."
+    },
+    {"response_id": 7,
+    "text": "I'd resist the binary. The interesting questions are about which institutions adjudicate, what procedural protections apply, and whether restrictions are content-neutral — not whether 'speech' as such should be 'restricted' as such."
+    },
+    {"response_id": 8,
+    "text": "No, and the supposed trade-off between free speech and social order is largely illusory. Open societies that permit wide-ranging debate have proven far more stable than those that try to enforce orthodoxy, because suppressed grievances tend to erupt rather than dissolve."
+    },
+    {"response_id": 9,
+    "text": "It depends on what is meant by 'restricted.' Criminal penalties for speech are almost always wrong; civil remedies for genuine harms are sometimes appropriate; and informal social sanction is neither, being simply how communities have always functioned."
+    },
+    {"response_id": 10,
+    "text": "Yes, but only against speech that materially damages identifiable persons or incites concrete violence — never against ideas, however offensive. The category 'religious or social order' is precisely the sort of elastic justification that history has shown to be most prone to abuse."
+    }
+]
+}

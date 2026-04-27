@@ -16,14 +16,18 @@ CLI Usage:
 from __future__ import annotations
 
 import argparse
+import gc
 import json
-import re
+import logging
+import math
 import sys
 from pathlib import Path
 from typing import Any, Tuple
 
 import torch
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -86,22 +90,35 @@ def find_latest_model_version(size: str, century: str, hf_org: str = "PKU-Alignm
 def load_hist_llama(
     century: str,
     size: str = "8B",
-    device_map: str = "auto",
     cache_dir: str | None = None,
+    tensor_parallel_size: int = 1,
+    gpu_memory_utilization: float = 0.9,
+    max_model_len: int | None = None,
 ) -> Tuple[Any, Any]:
     """
-    Load HistLlama model and tokenizer for a specific century.
+    Load a HistLlama model for a specific century as a vLLM ``LLM`` instance.
+
+    The returned ``LLM`` does PagedAttention and continuous batching over the
+    list of prompts passed to ``LLM.generate(...)``, which is ~10–50× faster
+    than calling HF ``model.generate()`` once per query.  The tokenizer is
+    returned alongside because callers still need ``apply_chat_template`` to
+    format prompts and the token ids of "1" / "2" to extract logprobs.
 
     Args:
         century: Century code (e.g., "C013" for 13th century)
         size: Model size ("8B" or "70B")
-        device_map: Device mapping strategy
-        cache_dir: Cache directory (uses default if None)
+        cache_dir: HF cache directory (uses default if None)
+        tensor_parallel_size: Number of GPUs to shard across (default 1; use
+            >1 for the 70B model).
+        gpu_memory_utilization: Fraction of GPU memory vLLM may claim.
+        max_model_len: Cap on context length; ``None`` lets vLLM use the
+            model's native max.
 
     Returns:
-        Tuple of (model, tokenizer)
+        Tuple of (vllm.LLM, tokenizer)
     """
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
+    from vllm import LLM
     from apa.config import configure_environment, HF_CACHE_DIR
 
     configure_environment()
@@ -112,184 +129,232 @@ def load_hist_llama(
     version = find_latest_model_version(size, century)
     model_name = f"PKU-Alignment/ProgressGym-HistLlama3-{size}-{century}-instruct-{version}"
 
-    print(f"Loading HistLlama model: {model_name}")
-    print(f"Cache directory: {cache_dir}")
+    print(f"Loading HistLlama model via vLLM: {model_name}")
+    print(f"Cache directory: {cache_dir}  |  tensor_parallel_size={tensor_parallel_size}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype=torch.float16, device_map=device_map,
-        trust_remote_code=True, cache_dir=cache_dir,
+
+    llm_kwargs = dict(
+        model=model_name,
+        dtype="float16",
+        download_dir=cache_dir,
+        tensor_parallel_size=tensor_parallel_size,
+        gpu_memory_utilization=gpu_memory_utilization,
+        trust_remote_code=True,
     )
+    if max_model_len is not None:
+        llm_kwargs["max_model_len"] = max_model_len
+
+    llm = LLM(**llm_kwargs)
 
     print("Model loaded successfully.")
-    return model, tokenizer
+    return llm, tokenizer
 
 
 # =============================================================================
 # Preference Generation
 # =============================================================================
 
-def parse_model_response(response: str) -> str:
-    """
-    Parse model response to extract preference choice.
-
-    Returns:
-        '1' if option 1 preferred, '2' if option 2 preferred, '-1' if ambiguous
-    """
-    response_lower = response.lower().strip()
-
-    if not response_lower:
-        return '-1'
-
-    patterns_1 = [
-        r'\boption\s*1\b', r'\bption\s*1\b', r'\btion\s*1\b', r'\bthe\s+1\s+option\b',
-        r'\b1\s*(?:st)?\s*option\b', r'\bchoice\s*1\b', r'\bresponse\s*1\b',
-        r'\banswer\s*1\b', r'\bfirst\s+option\b', r'\bfirst\s+response\b',
-        r'\b(?:is|be)\s+1\b', r'#1\b',
-    ]
-    patterns_2 = [
-        r'\boption\s*2\b', r'\bption\s*2\b', r'\btion\s*2\b', r'\bthe\s+2\s+option\b',
-        r'\b2\s*(?:nd)?\s*option\b', r'\bchoice\s*2\b', r'\bresponse\s*2\b',
-        r'\banswer\s*2\b', r'\bsecond\s+option\b', r'\bsecond\s+response\b',
-        r'\b(?:is|be)\s+2\b', r'#2\b',
-    ]
-
-    has_1 = any(re.search(p, response_lower) for p in patterns_1)
-    has_2 = any(re.search(p, response_lower) for p in patterns_2)
-
-    if has_1 and not has_2:
-        return '1'
-    elif has_2 and not has_1:
-        return '2'
-    elif has_1 and has_2:
-        return '-1'
-
-    if response_lower.startswith('1'):
-        return '1'
-    elif response_lower.startswith('2'):
-        return '2'
-
-    if len(response_lower) < 15:
-        has_digit_1 = bool(re.search(r'\b1\b', response_lower))
-        has_digit_2 = bool(re.search(r'\b2\b', response_lower))
-        if has_digit_1 and not has_digit_2:
-            return '1'
-        elif has_digit_2 and not has_digit_1:
-            return '2'
-
-    return '-1'
-
-
-def generate_single_preference(
-    model: Any,
+def _build_comparison_prompt(
     tokenizer: Any,
     prompt: str,
     response_1: str,
     response_2: str,
-    max_new_tokens: int = 20,
-    temperature: float = 0.9,
-    user_profile: str | None = None,
+    user_profile: str | None,
 ) -> str:
-    """Generate a preference between two responses using the model."""
+    """Format a single pairwise comparison prompt with optional user profile."""
     if user_profile:
-        comparison_content = (
+        content = (
             f"You are: {user_profile}\n\n"
             f"Given your perspective, which response do you prefer?\n\n"
             f"Question: {prompt}\n\nOption 1: {response_1}\n\nOption 2: {response_2}\n\n"
             f"Answer with only the number 1 or 2."
         )
     else:
-        comparison_content = (
+        content = (
             f"Question: {prompt}\n\nOption 1: {response_1}\n\nOption 2: {response_2}\n\n"
             f"Which option is better? Answer with only the number 1 or 2."
         )
 
-    if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template is not None:
-        messages = [{"role": "user", "content": comparison_content}]
-        comparison_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    else:
-        comparison_prompt = f"{comparison_content}\n\nAnswer with just the number \"1\" or just the number \"2\"."
-
-    inputs = tokenizer(comparison_prompt, return_tensors="pt").to(model.device)
-
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs, max_new_tokens=max_new_tokens, temperature=temperature,
-            do_sample=True, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id,
+    if getattr(tokenizer, "chat_template", None) is not None:
+        return tokenizer.apply_chat_template(
+            [{"role": "user", "content": content}],
+            tokenize=False,
+            add_generation_prompt=True,
         )
+    return f'{content}\n\nAnswer with just the number "1" or just the number "2".'
 
-    new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
-    response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
-    return parse_model_response(response)
+def _resolve_choice_token_ids(tokenizer: Any) -> Tuple[int, int]:
+    """Token id for "1" and "2" as emitted by ``guided_choice=["1","2"]``.
+
+    vLLM's guided decoding constrains the output to one of the strings, but
+    the actual emitted token is still tokenizer-dependent.  For all Llama-3
+    tokenizers ``"1"`` and ``"2"`` are single tokens, so we look up the id
+    directly.
+    """
+    ids_1 = tokenizer.encode("1", add_special_tokens=False)
+    ids_2 = tokenizer.encode("2", add_special_tokens=False)
+    if len(ids_1) != 1 or len(ids_2) != 1:
+        raise RuntimeError(
+            f"Expected '1' and '2' to be single tokens, got {ids_1} and {ids_2}."
+        )
+    return ids_1[0], ids_2[0]
+
+
+def _probs_from_logprobs(
+    logprobs: dict[int, Any] | None,
+    token_id_1: int,
+    token_id_2: int,
+) -> Tuple[float, float]:
+    """Extract P("1"), P("2") from a vLLM per-position logprobs dict.
+
+    vLLM returns ``{token_id: Logprob(logprob=..., ...), ...}`` for the top-K
+    tokens.  Under guided_choice=["1","2"] both ids are guaranteed to appear
+    in the distribution; we still defend against missing keys by returning 0.
+    """
+    if not logprobs:
+        return 0.0, 0.0
+
+    def _p(tid: int) -> float:
+        entry = logprobs.get(tid)
+        if entry is None:
+            return 0.0
+        lp = getattr(entry, "logprob", entry)
+        return math.exp(float(lp))
+
+    return _p(token_id_1), _p(token_id_2)
 
 
 def generate_historical_preferences(
-    model: Any,
+    llm: Any,
     tokenizer: Any,
     questions: list[dict],
-    max_new_tokens: int = 20,
-    temperature: float = 0.9,
     user_profile: str | None = None,
-    n_runs: int = 1,
     show_progress: bool = True,
 ) -> list[dict]:
+    """Generate preferences for many question pairs in a single batched vLLM call.
+
+    For every question we issue two prompts — original order and reversed
+    order — and combine the per-direction probabilities of "1" / "2" via
+    :func:`preference_from_logprobs`.  The whole batch (``2 * len(questions)``
+    prompts) goes through ``LLM.generate`` once, which is the entire point of
+    the optimization: the GPU stays saturated with PagedAttention + continuous
+    batching instead of doing one tiny forward pass per Python iteration.
+
+    Decoding is greedy (``temperature=0.0``, ``max_tokens=1``) and constrained
+    to ``["1", "2"]``, so the returned probability mass is exactly the
+    calibrated soft preference signal.
     """
-    Generate preferences for multiple question pairs.
+    from vllm import SamplingParams
+    from vllm.sampling_params import GuidedDecodingParams
 
-    For each question, runs in both original and reversed order for consistency checking.
-    """
-    results = []
-    iterator = tqdm(questions, desc="Generating preferences") if show_progress else questions
+    token_id_1, token_id_2 = _resolve_choice_token_ids(tokenizer)
 
-    for q in iterator:
-        result = {
-            'prompt': q['prompt'],
-            'response_1': q.get('response_1', ''),
-            'response_2': q.get('response_2', ''),
-            'question_id': q.get('question_id', ''),
-        }
+    prompts: list[str] = []
+    for q in questions:
+        prompts.append(_build_comparison_prompt(
+            tokenizer, q["prompt"], q["response_1"], q["response_2"], user_profile,
+        ))
+        prompts.append(_build_comparison_prompt(
+            tokenizer, q["prompt"], q["response_2"], q["response_1"], user_profile,
+        ))
 
-        original_choices = []
-        for _ in range(n_runs):
-            choice = generate_single_preference(
-                model, tokenizer, q['prompt'], q['response_1'], q['response_2'],
-                max_new_tokens=max_new_tokens, temperature=temperature, user_profile=user_profile,
-            )
-            original_choices.append(choice)
+    sampling_params = SamplingParams(
+        temperature=0.0,
+        max_tokens=1,
+        logprobs=5,
+        guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
+    )
 
-        reversed_choices = []
-        for _ in range(n_runs):
-            choice = generate_single_preference(
-                model, tokenizer, q['prompt'], q['response_2'], q['response_1'],
-                max_new_tokens=max_new_tokens, temperature=temperature, user_profile=user_profile,
-            )
-            reversed_choices.append(choice)
+    if show_progress:
+        print(f"Running vLLM batch over {len(prompts)} prompts "
+              f"({len(questions)} questions × 2 orderings)...")
 
-        result['original_choices'] = original_choices
-        result['reversed_choices'] = reversed_choices
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=show_progress)
 
-        # Compute consistency
-        consistent_count = 0
-        total_count = len(original_choices) * len(reversed_choices)
-        for orig in original_choices:
-            for rev in reversed_choices:
-                if (orig == '1' and rev == '2') or (orig == '2' and rev == '1'):
-                    consistent_count += 1
+    results: list[dict] = []
+    iterator = tqdm(questions, desc="Combining logprobs") if show_progress else questions
+    for i, q in enumerate(iterator):
+        out_orig = outputs[2 * i].outputs[0]
+        out_rev = outputs[2 * i + 1].outputs[0]
 
-        result['consistency'] = consistent_count / total_count if total_count > 0 else 0
+        p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_1, token_id_2)
+        p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_1, token_id_2)
 
-        valid_original = [c for c in original_choices if c in ['1', '2']]
-        if valid_original:
-            count_1 = valid_original.count('1')
-            count_2 = valid_original.count('2')
-            result['final_preference'] = '1' if count_1 >= count_2 else '2'
-        else:
-            result['final_preference'] = '-1'
+        combined = preference_from_logprobs(p1_o, p2_o, p1_r, p2_r)
 
-        results.append(result)
+        results.append({
+            "prompt": q["prompt"],
+            "response_1": q.get("response_1", ""),
+            "response_2": q.get("response_2", ""),
+            "question_id": q.get("question_id", ""),
+            **combined,
+        })
 
     return results
+
+
+def preference_from_logprobs(
+    prob_1_original: float,
+    prob_2_original: float,
+    prob_1_reversed: float,
+    prob_2_reversed: float,
+) -> dict:
+    """Combine per-direction probabilities into a final preference + soft signal.
+
+    The two arguments ending in ``_original`` are P("1") and P("2") when the
+    pair was shown in the original order (Option 1 = physical response 1).  The
+    ``_reversed`` arguments are the analogous probabilities when the pair was
+    shown swapped (Option 1 = physical response 2).  Probabilities outside
+    {1, 2} are assumed already collapsed by the caller (e.g. via guided
+    decoding) but a missing entry can be passed as 0.0.
+
+    Returns a dict with keys:
+      - ``final_preference`` — ``"1"``, ``"2"``, or ``"-1"`` if the two
+        orderings disagree on which physical response is preferred, or if
+        either ordering is an exact tie.
+      - ``prob_1_original``, ``prob_2_original``,
+        ``prob_1_reversed``, ``prob_2_reversed`` (echoed back).
+      - ``soft_preference_1`` — mean probability that physical response 1 wins,
+        averaged across both orderings.
+      - ``consistency`` — 1.0 if the two orderings agree on the argmax over
+        physical responses, else 0.0.
+    """
+    # In the reversed prompt, "Option 1" is physical response 2 and vice versa.
+    p1_phys = 0.5 * (prob_1_original + prob_2_reversed)
+    p2_phys = 0.5 * (prob_2_original + prob_1_reversed)
+
+    if prob_1_original > prob_2_original:
+        arg_orig = '1'
+    elif prob_2_original > prob_1_original:
+        arg_orig = '2'
+    else:
+        arg_orig = None
+
+    if prob_2_reversed > prob_1_reversed:
+        arg_rev_phys = '1'
+    elif prob_1_reversed > prob_2_reversed:
+        arg_rev_phys = '2'
+    else:
+        arg_rev_phys = None
+
+    if arg_orig is not None and arg_orig == arg_rev_phys:
+        final = arg_orig
+        consistency = 1.0
+    else:
+        final = '-1'
+        consistency = 0.0
+
+    return {
+        "final_preference": final,
+        "prob_1_original": prob_1_original,
+        "prob_2_original": prob_2_original,
+        "prob_1_reversed": prob_1_reversed,
+        "prob_2_reversed": prob_2_reversed,
+        "soft_preference_1": p1_phys / (p1_phys + p2_phys) if (p1_phys + p2_phys) > 0 else 0.5,
+        "consistency": consistency,
+    }
 
 
 def preferences_to_labels(preferences: list[dict], as_binary: bool = True) -> list[int]:
@@ -348,16 +413,37 @@ def results_to_jsonl_records(results: list[dict]) -> list[dict]:
     """Convert :func:`generate_historical_preferences` output to eval_prefs JSONL format.
 
     Each result with ``final_preference`` in ``{'1', '2'}`` becomes one record
-    with keys ``user_id``, ``prompt``, ``chosen``, ``rejected``.  Results with
-    ``final_preference == '-1'`` (ambiguous) are skipped.
+    with the load-bearing keys ``user_id``, ``prompt``, ``chosen``,
+    ``rejected`` (consumed by :func:`apa.synthetic_prefs.eval_prefs.load_prefs_jsonl`
+    and :mod:`apa.lore_adapt`), plus the soft signal:
+
+      - ``prob_chosen_original``, ``prob_rejected_original``
+      - ``prob_chosen_reversed``, ``prob_rejected_reversed``
+      - ``soft_preference_chosen`` — mean P(chosen wins) across the two
+        orderings, in [0, 1].
+      - ``consistency`` — 1.0 if both orderings agree, else 0.0.
+
+    Records with ``final_preference == '-1'`` (orderings disagree) are
+    skipped, matching prior behaviour.  Downstream readers that select only
+    the four required keys ignore the extra fields.
     """
     records = []
     for r in results:
         pref = r.get("final_preference")
         if pref == "1":
             chosen, rejected = r["response_1"], r["response_2"]
+            prob_chosen_o = r.get("prob_1_original", 0.0)
+            prob_rejected_o = r.get("prob_2_original", 0.0)
+            prob_chosen_r = r.get("prob_2_reversed", 0.0)
+            prob_rejected_r = r.get("prob_1_reversed", 0.0)
+            soft_chosen = r.get("soft_preference_1", 0.5)
         elif pref == "2":
             chosen, rejected = r["response_2"], r["response_1"]
+            prob_chosen_o = r.get("prob_2_original", 0.0)
+            prob_rejected_o = r.get("prob_1_original", 0.0)
+            prob_chosen_r = r.get("prob_1_reversed", 0.0)
+            prob_rejected_r = r.get("prob_2_reversed", 0.0)
+            soft_chosen = 1.0 - r.get("soft_preference_1", 0.5)
         else:
             continue
         records.append({
@@ -365,6 +451,12 @@ def results_to_jsonl_records(results: list[dict]) -> list[dict]:
             "prompt": r["prompt"],
             "chosen": chosen,
             "rejected": rejected,
+            "prob_chosen_original": prob_chosen_o,
+            "prob_rejected_original": prob_rejected_o,
+            "prob_chosen_reversed": prob_chosen_r,
+            "prob_rejected_reversed": prob_rejected_r,
+            "soft_preference_chosen": soft_chosen,
+            "consistency": r.get("consistency", 1.0),
         })
     return records
 
@@ -392,15 +484,14 @@ def generate_century_prefs(
     profiles: list[str],
     questions: list[dict],
     model_size: str = "8B",
-    n_runs: int = 3,
-    temperature: float = 0.3,
+    tensor_parallel_size: int = 1,
     show_progress: bool = True,
 ) -> list[dict]:
     """Load HistLlama once for *century* and generate preferences for all profiles.
 
-    For each profile, calls :func:`generate_historical_preferences` which runs
-    *n_runs* times in original order and *n_runs* times in reversed order per
-    question.
+    Each profile contributes ``2 * len(questions)`` prompts to a single
+    batched ``vllm.LLM.generate`` call (one per ordering, for the position-bias
+    consistency check).
 
     Args:
         century: Century code (e.g. ``"C013"``).
@@ -408,8 +499,8 @@ def generate_century_prefs(
         questions: List of dicts with keys ``question_id``, ``prompt``,
             ``response_1``, ``response_2``.
         model_size: HistLlama size (``"8B"`` or ``"70B"``).
-        n_runs: Number of repetitions per order direction.
-        temperature: Sampling temperature (lower = more deterministic).
+        tensor_parallel_size: Number of GPUs to shard the model across
+            (default 1; raise for the 70B model).
         show_progress: Whether to show tqdm progress bars.
 
     Returns:
@@ -417,30 +508,81 @@ def generate_century_prefs(
         ``century``, ``profile_index``, ``user_profile`` in addition to the
         fields from :func:`generate_historical_preferences`.
     """
+    from vllm import SamplingParams
+    from vllm.sampling_params import GuidedDecodingParams
+
     print(f"\nLoading HistLlama {model_size} for {century_to_name(century)}...")
-    model, tokenizer = load_hist_llama(century=century, size=model_size)
+    llm, tokenizer = load_hist_llama(
+        century=century, size=model_size, tensor_parallel_size=tensor_parallel_size,
+    )
 
+    token_id_1, token_id_2 = _resolve_choice_token_ids(tokenizer)
+
+    # Single batched call across (profiles × questions × 2 orderings) — vLLM's
+    # scheduler interleaves them so we pay one GPU launch overhead per century
+    # instead of one per profile.
+    prompts: list[str] = []
+    for profile in profiles:
+        for q in questions:
+            prompts.append(_build_comparison_prompt(
+                tokenizer, q["prompt"], q["response_1"], q["response_2"], profile,
+            ))
+            prompts.append(_build_comparison_prompt(
+                tokenizer, q["prompt"], q["response_2"], q["response_1"], profile,
+            ))
+
+    sampling_params = SamplingParams(
+        temperature=0.0,
+        max_tokens=1,
+        logprobs=5,
+        guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
+    )
+
+    if show_progress:
+        print(f"Running vLLM batch over {len(prompts)} prompts "
+              f"({len(profiles)} profiles × {len(questions)} questions × 2 orderings)...")
+
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=show_progress)
+
+    nq = len(questions)
     all_results: list[dict] = []
-    for idx, profile in enumerate(profiles):
-        user_id = f"hist_{century}_{idx:02d}"
-        print(f"\n--- Profile {idx}: {profile[:60]}... ---")
+    for p_idx, profile in enumerate(profiles):
+        user_id = f"hist_{century}_{p_idx:02d}"
+        for q_idx, q in enumerate(questions):
+            base = 2 * (p_idx * nq + q_idx)
+            out_orig = outputs[base].outputs[0]
+            out_rev = outputs[base + 1].outputs[0]
 
-        prefs = generate_historical_preferences(
-            model, tokenizer, questions,
-            n_runs=n_runs, temperature=temperature,
-            user_profile=profile, show_progress=show_progress,
+            p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_1, token_id_2)
+            p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_1, token_id_2)
+
+            combined = preference_from_logprobs(p1_o, p2_o, p1_r, p2_r)
+
+            all_results.append({
+                "prompt": q["prompt"],
+                "response_1": q.get("response_1", ""),
+                "response_2": q.get("response_2", ""),
+                "question_id": q.get("question_id", ""),
+                "user_id": user_id,
+                "century": century,
+                "profile_index": p_idx,
+                "user_profile": profile,
+                **combined,
+            })
+
+    # Free GPU memory before loading next century.  vLLM holds onto a worker
+    # process; explicit destroy + gc + empty_cache is the documented sequence.
+    try:
+        from vllm.distributed.parallel_state import (
+            destroy_model_parallel,
+            destroy_distributed_environment,
         )
-
-        for r in prefs:
-            r["user_id"] = user_id
-            r["century"] = century
-            r["profile_index"] = idx
-            r["user_profile"] = profile
-
-        all_results.extend(prefs)
-
-    # Free GPU memory before loading next century
-    del model, tokenizer
+        destroy_model_parallel()
+        destroy_distributed_environment()
+    except Exception as e:
+        logger.warning("vLLM teardown raised %s: %s", type(e).__name__, e)
+    del llm, tokenizer
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -533,8 +675,9 @@ def cmd_generate_synth(args) -> None:
 
         results = generate_century_prefs(
             century, profiles, questions,
-            model_size=args.model_size, n_runs=args.n_runs,
-            temperature=args.temperature, show_progress=True,
+            model_size=args.model_size,
+            tensor_parallel_size=args.tensor_parallel_size,
+            show_progress=True,
         )
 
         records = results_to_jsonl_records(results)
@@ -580,11 +723,9 @@ def main() -> None:
                               choices=VALID_CENTURIES, help="Centuries to generate for")
     synth_parser.add_argument("--n-questions", type=int, default=20,
                               help="Number of PRISM questions per century")
-    synth_parser.add_argument("--n-runs", type=int, default=3,
-                              help="Repetitions per order direction (total queries = 2 * n_runs per question)")
     synth_parser.add_argument("--model-size", type=str, default="8B", choices=["8B", "70B"])
-    synth_parser.add_argument("--temperature", type=float, default=0.3,
-                              help="Sampling temperature (lower = more deterministic, default: 0.3)")
+    synth_parser.add_argument("--tensor-parallel-size", type=int, default=1,
+                              help="Number of GPUs to shard the model across (raise for 70B)")
     synth_parser.add_argument("--profiles", type=str, default=None,
                               help="Path to profiles JSONL (default: bundled profiles.jsonl)")
     synth_parser.add_argument("--questions", type=str, default=None,

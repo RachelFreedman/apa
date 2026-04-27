@@ -76,14 +76,22 @@ class TestLoadProfiles:
 # results_to_jsonl_records
 # ---------------------------------------------------------------------------
 
-def _make_result(user_id, prompt, r1, r2, pref):
+def _make_result(user_id, prompt, r1, r2, pref, *,
+                 prob_1_original=0.0, prob_2_original=0.0,
+                 prob_1_reversed=0.0, prob_2_reversed=0.0,
+                 soft_preference_1=0.5, consistency=1.0):
     return {
         "user_id": user_id,
         "prompt": prompt,
         "response_1": r1,
         "response_2": r2,
         "final_preference": pref,
-        "consistency": 0.8,
+        "prob_1_original": prob_1_original,
+        "prob_2_original": prob_2_original,
+        "prob_1_reversed": prob_1_reversed,
+        "prob_2_reversed": prob_2_reversed,
+        "soft_preference_1": soft_preference_1,
+        "consistency": consistency,
     }
 
 
@@ -95,9 +103,11 @@ class TestResultsToJsonlRecords:
         results = [_make_result("u0", "Q?", "A", "B", "1")]
         records = results_to_jsonl_records(results)
         assert len(records) == 1
-        assert records[0] == {
-            "user_id": "u0", "prompt": "Q?", "chosen": "A", "rejected": "B",
-        }
+        rec = records[0]
+        assert rec["user_id"] == "u0"
+        assert rec["prompt"] == "Q?"
+        assert rec["chosen"] == "A"
+        assert rec["rejected"] == "B"
 
     def test_preference_2(self):
         """Preference '2' maps chosen=response_2, rejected=response_1."""
@@ -128,6 +138,39 @@ class TestResultsToJsonlRecords:
     def test_empty_input(self):
         """Empty input returns empty list."""
         assert results_to_jsonl_records([]) == []
+
+    def test_logprobs_carried_for_pref_1(self):
+        """When preference is '1', prob_chosen comes from prob_1, prob_rejected from prob_2."""
+        results = [_make_result(
+            "u0", "Q?", "A", "B", "1",
+            prob_1_original=0.85, prob_2_original=0.15,
+            prob_1_reversed=0.10, prob_2_reversed=0.90,
+            soft_preference_1=0.875, consistency=1.0,
+        )]
+        rec = results_to_jsonl_records(results)[0]
+        assert rec["prob_chosen_original"] == 0.85
+        assert rec["prob_rejected_original"] == 0.15
+        # In reversed prompt, "1" tokenized prob is for physical response 2 (rejected).
+        assert rec["prob_chosen_reversed"] == 0.90
+        assert rec["prob_rejected_reversed"] == 0.10
+        assert rec["soft_preference_chosen"] == 0.875
+        assert rec["consistency"] == 1.0
+
+    def test_logprobs_swapped_for_pref_2(self):
+        """When preference is '2', chosen=response_2 so prob_chosen comes from prob_2."""
+        results = [_make_result(
+            "u0", "Q?", "A", "B", "2",
+            prob_1_original=0.20, prob_2_original=0.80,
+            prob_1_reversed=0.75, prob_2_reversed=0.25,
+            soft_preference_1=0.225, consistency=1.0,
+        )]
+        rec = results_to_jsonl_records(results)[0]
+        assert rec["prob_chosen_original"] == 0.80
+        assert rec["prob_rejected_original"] == 0.20
+        assert rec["prob_chosen_reversed"] == 0.75
+        assert rec["prob_rejected_reversed"] == 0.25
+        # soft_preference_chosen for '2' is 1 - soft_preference_1.
+        assert abs(rec["soft_preference_chosen"] - (1 - 0.225)) < 1e-9
 
 
 # ---------------------------------------------------------------------------

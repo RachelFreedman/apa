@@ -50,8 +50,14 @@ W vectors against the LoRe basis via few-shot fitting.
 
 ```bash
 # 3a. Generate synthetic preferences across centuries and profiles.
+# Inference is batched via vLLM with greedy guided decoding to {"1","2"};
+# the JSONL output carries per-pair logprobs alongside chosen/rejected.
 uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
     --centuries C013 C017 C019 C021 --n-questions 20
+
+# For the 70B model, shard across multiple GPUs:
+uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
+    --centuries C013 --n-questions 20 --model-size 70B --tensor-parallel-size 2
 
 # 3b. Few-shot-adapt per-user W vectors from the generated JSONL.
 uv run python -m apa.lore_adapt hist_prefs_top3.jsonl --K 8

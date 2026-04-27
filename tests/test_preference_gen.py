@@ -96,6 +96,15 @@ class TestPreferenceFromLogprobs:
         out = preference_from_logprobs(0.0, 0.0, 0.0, 0.0)
         # When there's no signal at all (degenerate), soft pref defaults to 0.5.
         assert out["soft_preference_1"] == 0.5
+        # Exact tie in both directions is treated as ambiguous, not biased to '1'.
+        assert out["final_preference"] == "-1"
+        assert out["consistency"] == 0.0
+
+    def test_exact_tie_in_one_direction_is_ambiguous(self):
+        # Original direction is an exact tie → final should be '-1' regardless of reversed.
+        out = preference_from_logprobs(0.5, 0.5, 0.1, 0.9)
+        assert out["final_preference"] == "-1"
+        assert out["consistency"] == 0.0
 
     def test_echoes_input_probs(self):
         out = preference_from_logprobs(0.6, 0.4, 0.3, 0.7)

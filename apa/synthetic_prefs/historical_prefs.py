@@ -18,12 +18,16 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import logging
+import math
 import sys
 from pathlib import Path
 from typing import Any, Tuple
 
 import torch
 from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -217,7 +221,7 @@ def _probs_from_logprobs(
         if entry is None:
             return 0.0
         lp = getattr(entry, "logprob", entry)
-        return float(torch.exp(torch.tensor(float(lp))).item())
+        return math.exp(float(lp))
 
     return _p(token_id_1), _p(token_id_2)
 
@@ -259,7 +263,7 @@ def generate_historical_preferences(
     sampling_params = SamplingParams(
         temperature=0.0,
         max_tokens=1,
-        logprobs=20,
+        logprobs=5,
         guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
     )
 
@@ -308,7 +312,8 @@ def preference_from_logprobs(
 
     Returns a dict with keys:
       - ``final_preference`` — ``"1"``, ``"2"``, or ``"-1"`` if the two
-        orderings disagree on which physical response is preferred.
+        orderings disagree on which physical response is preferred, or if
+        either ordering is an exact tie.
       - ``prob_1_original``, ``prob_2_original``,
         ``prob_1_reversed``, ``prob_2_reversed`` (echoed back).
       - ``soft_preference_1`` — mean probability that physical response 1 wins,
@@ -320,10 +325,21 @@ def preference_from_logprobs(
     p1_phys = 0.5 * (prob_1_original + prob_2_reversed)
     p2_phys = 0.5 * (prob_2_original + prob_1_reversed)
 
-    arg_orig = '1' if prob_1_original >= prob_2_original else '2'
-    arg_rev_phys = '1' if prob_2_reversed >= prob_1_reversed else '2'
+    if prob_1_original > prob_2_original:
+        arg_orig = '1'
+    elif prob_2_original > prob_1_original:
+        arg_orig = '2'
+    else:
+        arg_orig = None
 
-    if arg_orig == arg_rev_phys:
+    if prob_2_reversed > prob_1_reversed:
+        arg_rev_phys = '1'
+    elif prob_1_reversed > prob_2_reversed:
+        arg_rev_phys = '2'
+    else:
+        arg_rev_phys = None
+
+    if arg_orig is not None and arg_orig == arg_rev_phys:
         final = arg_orig
         consistency = 1.0
     else:
@@ -492,28 +508,67 @@ def generate_century_prefs(
         ``century``, ``profile_index``, ``user_profile`` in addition to the
         fields from :func:`generate_historical_preferences`.
     """
+    from vllm import SamplingParams
+    from vllm.sampling_params import GuidedDecodingParams
+
     print(f"\nLoading HistLlama {model_size} for {century_to_name(century)}...")
     llm, tokenizer = load_hist_llama(
         century=century, size=model_size, tensor_parallel_size=tensor_parallel_size,
     )
 
+    token_id_1, token_id_2 = _resolve_choice_token_ids(tokenizer)
+
+    # Single batched call across (profiles × questions × 2 orderings) — vLLM's
+    # scheduler interleaves them so we pay one GPU launch overhead per century
+    # instead of one per profile.
+    prompts: list[str] = []
+    for profile in profiles:
+        for q in questions:
+            prompts.append(_build_comparison_prompt(
+                tokenizer, q["prompt"], q["response_1"], q["response_2"], profile,
+            ))
+            prompts.append(_build_comparison_prompt(
+                tokenizer, q["prompt"], q["response_2"], q["response_1"], profile,
+            ))
+
+    sampling_params = SamplingParams(
+        temperature=0.0,
+        max_tokens=1,
+        logprobs=5,
+        guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
+    )
+
+    if show_progress:
+        print(f"Running vLLM batch over {len(prompts)} prompts "
+              f"({len(profiles)} profiles × {len(questions)} questions × 2 orderings)...")
+
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=show_progress)
+
+    nq = len(questions)
     all_results: list[dict] = []
-    for idx, profile in enumerate(profiles):
-        user_id = f"hist_{century}_{idx:02d}"
-        print(f"\n--- Profile {idx}: {profile[:60]}... ---")
+    for p_idx, profile in enumerate(profiles):
+        user_id = f"hist_{century}_{p_idx:02d}"
+        for q_idx, q in enumerate(questions):
+            base = 2 * (p_idx * nq + q_idx)
+            out_orig = outputs[base].outputs[0]
+            out_rev = outputs[base + 1].outputs[0]
 
-        prefs = generate_historical_preferences(
-            llm, tokenizer, questions,
-            user_profile=profile, show_progress=show_progress,
-        )
+            p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_1, token_id_2)
+            p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_1, token_id_2)
 
-        for r in prefs:
-            r["user_id"] = user_id
-            r["century"] = century
-            r["profile_index"] = idx
-            r["user_profile"] = profile
+            combined = preference_from_logprobs(p1_o, p2_o, p1_r, p2_r)
 
-        all_results.extend(prefs)
+            all_results.append({
+                "prompt": q["prompt"],
+                "response_1": q.get("response_1", ""),
+                "response_2": q.get("response_2", ""),
+                "question_id": q.get("question_id", ""),
+                "user_id": user_id,
+                "century": century,
+                "profile_index": p_idx,
+                "user_profile": profile,
+                **combined,
+            })
 
     # Free GPU memory before loading next century.  vLLM holds onto a worker
     # process; explicit destroy + gc + empty_cache is the documented sequence.
@@ -524,8 +579,8 @@ def generate_century_prefs(
         )
         destroy_model_parallel()
         destroy_distributed_environment()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("vLLM teardown raised %s: %s", type(e).__name__, e)
     del llm, tokenizer
     gc.collect()
     if torch.cuda.is_available():

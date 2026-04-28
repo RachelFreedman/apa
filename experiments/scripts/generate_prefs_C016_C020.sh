@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Full run: generate synthetic preferences for C016 and C020 using the new
-# two-stage CoT prompt with system-role persona and X/Y labels. Output goes
-# to a fresh directory so the prior 1/2-label outputs are preserved.
+# Full run: generate synthetic preferences for C016 and C020 using the
+# two-stage CoT prompt with system-role persona and X/Y labels.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXP_DIR="$REPO_ROOT/experiments"
-OUT_DIR="$EXP_DIR/synthetic_prefs_C016_C020_v2"
+OUT_DIR="$EXP_DIR/synthetic_prefs_C016_C020"
 PROFILES="$EXP_DIR/profiles.jsonl"
 QUESTIONS_JSONL="$EXP_DIR/chosen_questions.jsonl"
 QUESTIONS_IDS="$OUT_DIR/chosen_question_ids.txt"

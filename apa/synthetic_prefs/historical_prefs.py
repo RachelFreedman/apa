@@ -775,6 +775,31 @@ def cmd_generate_synth(args) -> None:
             for _, row in selected_df.iterrows()
         ]
 
+        # Per-century resume: if both per-century outputs already exist on disk
+        # AND their {question_id} × {user_id} cover sets match what this run
+        # would generate, reuse them and skip the (very expensive) inference.
+        raw_path = output_dir / f"hist_prefs_{century}_raw.json"
+        jsonl_path = output_dir / f"hist_prefs_{century}.jsonl"
+        if raw_path.exists() and jsonl_path.exists():
+            try:
+                with open(raw_path) as f:
+                    existing = json.load(f)
+                existing_qids = {r.get("question_id") for r in existing}
+                wanted_qids = {q["question_id"] for q in questions}
+                existing_users = {r.get("user_id") for r in existing}
+                wanted_users = {f"hist_{century}_{i:02d}" for i in range(len(profiles))}
+                if existing_qids == wanted_qids and existing_users == wanted_users:
+                    records = results_to_jsonl_records(existing)
+                    print(f"[resume] {century} already complete on disk "
+                          f"({len(existing)} raw records, {len(records)} valid prefs); skipping inference.")
+                    all_records.extend(records)
+                    continue
+                print(f"[resume] {century} outputs exist but do not match current "
+                      f"questions/profiles (qids match: {existing_qids == wanted_qids}, "
+                      f"users match: {existing_users == wanted_users}); regenerating.")
+            except (json.JSONDecodeError, KeyError, OSError) as e:
+                print(f"[resume] {century} existing raw output unreadable ({e}); regenerating.")
+
         results = generate_century_prefs(
             century, profiles, questions,
             model_size=args.model_size,

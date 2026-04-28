@@ -1,0 +1,1108 @@
+[
+  {
+    "timestamp": "2026-04-28T10:28:18.256124",
+    "query": "Should women have the same legal and political rights as men?",
+    "query_id": 1,
+    "responses_source": "/home/rachel/APA/experiments/query_responses_simple.jsonl",
+    "responses": [
+      "Yes.",
+      "No."
+    ],
+    "response_embeddings_hash": "fb7018c573f492ada5784dfc390ce1d308de25a539832f98bfec824d18cd82e1",
+    "jury_manifest": {
+      "V": "/nas/ucb/rachel/APA/models/V_K8.pt",
+      "K": 8,
+      "sources": [
+        {
+          "origin": "prism",
+          "path": "/nas/ucb/rachel/APA/models/W_seen_K8.pt",
+          "n_loaded": 182
+        },
+        {
+          "origin": "adapted",
+          "path": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt",
+          "n_loaded": 20
+        }
+      ]
+    },
+    "sampled_user_ids": [
+      "hist_C016_00",
+      "hist_C016_01",
+      "hist_C016_02",
+      "hist_C016_03",
+      "hist_C016_04",
+      "hist_C016_05",
+      "hist_C016_06",
+      "hist_C016_07",
+      "hist_C016_08",
+      "hist_C016_09",
+      "hist_C020_00",
+      "hist_C020_01",
+      "hist_C020_02",
+      "hist_C020_03",
+      "hist_C020_04",
+      "hist_C020_05",
+      "hist_C020_06",
+      "hist_C020_07",
+      "hist_C020_08",
+      "hist_C020_09",
+      "prism_user_163",
+      "prism_user_28",
+      "prism_user_6",
+      "prism_user_70",
+      "prism_user_62",
+      "prism_user_57",
+      "prism_user_35",
+      "prism_user_26",
+      "prism_user_173",
+      "prism_user_139"
+    ],
+    "sampled_user_metadata": {
+      "hist_C016_00": {
+        "period": "16C",
+        "ID": "hist_C016_00",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_01": {
+        "period": "16C",
+        "ID": "hist_C016_01",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_02": {
+        "period": "16C",
+        "ID": "hist_C016_02",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_03": {
+        "period": "16C",
+        "ID": "hist_C016_03",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_04": {
+        "period": "16C",
+        "ID": "hist_C016_04",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_05": {
+        "period": "16C",
+        "ID": "hist_C016_05",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_06": {
+        "period": "16C",
+        "ID": "hist_C016_06",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_07": {
+        "period": "16C",
+        "ID": "hist_C016_07",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_08": {
+        "period": "16C",
+        "ID": "hist_C016_08",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_09": {
+        "period": "16C",
+        "ID": "hist_C016_09",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_00": {
+        "period": "20C",
+        "ID": "hist_C020_00",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_01": {
+        "period": "20C",
+        "ID": "hist_C020_01",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_02": {
+        "period": "20C",
+        "ID": "hist_C020_02",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_03": {
+        "period": "20C",
+        "ID": "hist_C020_03",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_04": {
+        "period": "20C",
+        "ID": "hist_C020_04",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_05": {
+        "period": "20C",
+        "ID": "hist_C020_05",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_06": {
+        "period": "20C",
+        "ID": "hist_C020_06",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_07": {
+        "period": "20C",
+        "ID": "hist_C020_07",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_08": {
+        "period": "20C",
+        "ID": "hist_C020_08",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_09": {
+        "period": "20C",
+        "ID": "hist_C020_09",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "prism_user_163": {
+        "period": "original",
+        "ID": "prism_user_163",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_28": {
+        "period": "original",
+        "ID": "prism_user_28",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_6": {
+        "period": "original",
+        "ID": "prism_user_6",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_70": {
+        "period": "original",
+        "ID": "prism_user_70",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_62": {
+        "period": "original",
+        "ID": "prism_user_62",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_57": {
+        "period": "original",
+        "ID": "prism_user_57",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_35": {
+        "period": "original",
+        "ID": "prism_user_35",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_26": {
+        "period": "original",
+        "ID": "prism_user_26",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_173": {
+        "period": "original",
+        "ID": "prism_user_173",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_139": {
+        "period": "original",
+        "ID": "prism_user_139",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      }
+    },
+    "per_voter_scores": {
+      "hist_C016_00": [
+        0.7792110443115234,
+        0.8356823325157166
+      ],
+      "hist_C016_01": [
+        2.6778948307037354,
+        3.1872036457061768
+      ],
+      "hist_C016_02": [
+        2.6770341396331787,
+        3.1860811710357666
+      ],
+      "hist_C016_03": [
+        0.779091477394104,
+        0.8355404138565063
+      ],
+      "hist_C016_04": [
+        0.7790833711624146,
+        0.8355114459991455
+      ],
+      "hist_C016_05": [
+        2.6780383586883545,
+        3.187323808670044
+      ],
+      "hist_C016_06": [
+        2.675466775894165,
+        3.1849162578582764
+      ],
+      "hist_C016_07": [
+        0.7791041731834412,
+        0.8355493545532227
+      ],
+      "hist_C016_08": [
+        0.6286324262619019,
+        1.2576117515563965
+      ],
+      "hist_C016_09": [
+        -0.7526436448097229,
+        -1.4222941398620605
+      ],
+      "hist_C020_00": [
+        2.6780447959899902,
+        3.1873323917388916
+      ],
+      "hist_C020_01": [
+        2.6780505180358887,
+        3.187343120574951
+      ],
+      "hist_C020_02": [
+        -0.7667422890663147,
+        0.09677579998970032
+      ],
+      "hist_C020_03": [
+        0.6286265254020691,
+        1.2575974464416504
+      ],
+      "hist_C020_04": [
+        -0.7670935988426208,
+        0.0964432805776596
+      ],
+      "hist_C020_05": [
+        -0.7527733445167542,
+        -1.4224687814712524
+      ],
+      "hist_C020_06": [
+        2.677945375442505,
+        3.1872177124023438
+      ],
+      "hist_C020_07": [
+        2.6779515743255615,
+        3.1872167587280273
+      ],
+      "hist_C020_08": [
+        0.628591001033783,
+        1.257575273513794
+      ],
+      "hist_C020_09": [
+        2.677135705947876,
+        3.186206340789795
+      ],
+      "prism_user_163": [
+        0.005090058781206608,
+        -0.020121078938245773
+      ],
+      "prism_user_28": [
+        -0.04223369061946869,
+        -0.03591609001159668
+      ],
+      "prism_user_6": [
+        0.09128762781620026,
+        0.09594829380512238
+      ],
+      "prism_user_70": [
+        -0.023149432614445686,
+        -0.006568717770278454
+      ],
+      "prism_user_62": [
+        -0.02569613978266716,
+        -0.03091866709291935
+      ],
+      "prism_user_57": [
+        -0.020262252539396286,
+        -0.03348333761096001
+      ],
+      "prism_user_35": [
+        0.019843965768814087,
+        0.020793266594409943
+      ],
+      "prism_user_26": [
+        0.00017944630235433578,
+        -0.01627984270453453
+      ],
+      "prism_user_173": [
+        -0.02973334863781929,
+        -0.05105739086866379
+      ],
+      "prism_user_139": [
+        -0.0832570493221283,
+        -0.10228337347507477
+      ]
+    },
+    "per_voter_rankings": {
+      "hist_C016_00": [
+        1,
+        0
+      ],
+      "hist_C016_01": [
+        1,
+        0
+      ],
+      "hist_C016_02": [
+        1,
+        0
+      ],
+      "hist_C016_03": [
+        1,
+        0
+      ],
+      "hist_C016_04": [
+        1,
+        0
+      ],
+      "hist_C016_05": [
+        1,
+        0
+      ],
+      "hist_C016_06": [
+        1,
+        0
+      ],
+      "hist_C016_07": [
+        1,
+        0
+      ],
+      "hist_C016_08": [
+        1,
+        0
+      ],
+      "hist_C016_09": [
+        0,
+        1
+      ],
+      "hist_C020_00": [
+        1,
+        0
+      ],
+      "hist_C020_01": [
+        1,
+        0
+      ],
+      "hist_C020_02": [
+        1,
+        0
+      ],
+      "hist_C020_03": [
+        1,
+        0
+      ],
+      "hist_C020_04": [
+        1,
+        0
+      ],
+      "hist_C020_05": [
+        0,
+        1
+      ],
+      "hist_C020_06": [
+        1,
+        0
+      ],
+      "hist_C020_07": [
+        1,
+        0
+      ],
+      "hist_C020_08": [
+        1,
+        0
+      ],
+      "hist_C020_09": [
+        1,
+        0
+      ],
+      "prism_user_163": [
+        0,
+        1
+      ],
+      "prism_user_28": [
+        1,
+        0
+      ],
+      "prism_user_6": [
+        1,
+        0
+      ],
+      "prism_user_70": [
+        1,
+        0
+      ],
+      "prism_user_62": [
+        0,
+        1
+      ],
+      "prism_user_57": [
+        0,
+        1
+      ],
+      "prism_user_35": [
+        1,
+        0
+      ],
+      "prism_user_26": [
+        0,
+        1
+      ],
+      "prism_user_173": [
+        0,
+        1
+      ],
+      "prism_user_139": [
+        0,
+        1
+      ]
+    },
+    "average_ranks": [
+      1.7333333333333334,
+      1.2666666666666666
+    ],
+    "aggregations": {
+      "borda_count": {
+        "ranking": [
+          1,
+          0
+        ],
+        "winner_idx": 1
+      },
+      "plurality": {
+        "ranking": [
+          1,
+          0
+        ],
+        "winner_idx": 1
+      },
+      "copeland": {
+        "ranking": [
+          1,
+          0
+        ],
+        "winner_idx": 1
+      },
+      "instant_runoff": {
+        "ranking": [
+          1,
+          0
+        ],
+        "winner_idx": 1
+      }
+    },
+    "config": {
+      "k_responses": 5,
+      "m_voters": 10,
+      "methods": [
+        "borda_count",
+        "plurality",
+        "copeland",
+        "instant_runoff"
+      ],
+      "sampling": "per_group",
+      "sampling_config": {
+        "per_group_counts": {
+          "16C": 10,
+          "20C": 10,
+          "original": 10
+        }
+      },
+      "jury_sources": [
+        {
+          "label": "16C",
+          "count": null
+        },
+        {
+          "label": "20C",
+          "count": null
+        },
+        {
+          "label": "original",
+          "count": 10
+        }
+      ],
+      "seed": 42,
+      "inference_llm": null
+    }
+  },
+  {
+    "timestamp": "2026-04-28T10:28:18.317295",
+    "query": "Should speech be legally restricted to protect religious or social order?",
+    "query_id": 2,
+    "responses_source": "/home/rachel/APA/experiments/query_responses_simple.jsonl",
+    "responses": [
+      "Yes.",
+      "No."
+    ],
+    "response_embeddings_hash": "685c1702be7bb881e718d65d3c4e112cd1a0ed051c158bc60667f35a3b240dc4",
+    "jury_manifest": {
+      "V": "/nas/ucb/rachel/APA/models/V_K8.pt",
+      "K": 8,
+      "sources": [
+        {
+          "origin": "prism",
+          "path": "/nas/ucb/rachel/APA/models/W_seen_K8.pt",
+          "n_loaded": 182
+        },
+        {
+          "origin": "adapted",
+          "path": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt",
+          "n_loaded": 20
+        }
+      ]
+    },
+    "sampled_user_ids": [
+      "hist_C016_00",
+      "hist_C016_01",
+      "hist_C016_02",
+      "hist_C016_03",
+      "hist_C016_04",
+      "hist_C016_05",
+      "hist_C016_06",
+      "hist_C016_07",
+      "hist_C016_08",
+      "hist_C016_09",
+      "hist_C020_00",
+      "hist_C020_01",
+      "hist_C020_02",
+      "hist_C020_03",
+      "hist_C020_04",
+      "hist_C020_05",
+      "hist_C020_06",
+      "hist_C020_07",
+      "hist_C020_08",
+      "hist_C020_09",
+      "prism_user_163",
+      "prism_user_28",
+      "prism_user_6",
+      "prism_user_70",
+      "prism_user_62",
+      "prism_user_57",
+      "prism_user_35",
+      "prism_user_26",
+      "prism_user_173",
+      "prism_user_139"
+    ],
+    "sampled_user_metadata": {
+      "hist_C016_00": {
+        "period": "16C",
+        "ID": "hist_C016_00",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_01": {
+        "period": "16C",
+        "ID": "hist_C016_01",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_02": {
+        "period": "16C",
+        "ID": "hist_C016_02",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_03": {
+        "period": "16C",
+        "ID": "hist_C016_03",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_04": {
+        "period": "16C",
+        "ID": "hist_C016_04",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_05": {
+        "period": "16C",
+        "ID": "hist_C016_05",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_06": {
+        "period": "16C",
+        "ID": "hist_C016_06",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_07": {
+        "period": "16C",
+        "ID": "hist_C016_07",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_08": {
+        "period": "16C",
+        "ID": "hist_C016_08",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C016_09": {
+        "period": "16C",
+        "ID": "hist_C016_09",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_00": {
+        "period": "20C",
+        "ID": "hist_C020_00",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_01": {
+        "period": "20C",
+        "ID": "hist_C020_01",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_02": {
+        "period": "20C",
+        "ID": "hist_C020_02",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_03": {
+        "period": "20C",
+        "ID": "hist_C020_03",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_04": {
+        "period": "20C",
+        "ID": "hist_C020_04",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_05": {
+        "period": "20C",
+        "ID": "hist_C020_05",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_06": {
+        "period": "20C",
+        "ID": "hist_C020_06",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_07": {
+        "period": "20C",
+        "ID": "hist_C020_07",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_08": {
+        "period": "20C",
+        "ID": "hist_C020_08",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "hist_C020_09": {
+        "period": "20C",
+        "ID": "hist_C020_09",
+        "origin": "adapted",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+      },
+      "prism_user_163": {
+        "period": "original",
+        "ID": "prism_user_163",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_28": {
+        "period": "original",
+        "ID": "prism_user_28",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_6": {
+        "period": "original",
+        "ID": "prism_user_6",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_70": {
+        "period": "original",
+        "ID": "prism_user_70",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_62": {
+        "period": "original",
+        "ID": "prism_user_62",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_57": {
+        "period": "original",
+        "ID": "prism_user_57",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_35": {
+        "period": "original",
+        "ID": "prism_user_35",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_26": {
+        "period": "original",
+        "ID": "prism_user_26",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_173": {
+        "period": "original",
+        "ID": "prism_user_173",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      },
+      "prism_user_139": {
+        "period": "original",
+        "ID": "prism_user_139",
+        "origin": "prism",
+        "checkpoint": "/nas/ucb/rachel/APA/models/W_seen_K8.pt"
+      }
+    },
+    "per_voter_scores": {
+      "hist_C016_00": [
+        0.694302499294281,
+        0.8990302681922913
+      ],
+      "hist_C016_01": [
+        0.5027878284454346,
+        0.09577150642871857
+      ],
+      "hist_C016_02": [
+        0.5029646754264832,
+        0.09626875817775726
+      ],
+      "hist_C016_03": [
+        0.6943075656890869,
+        0.8990668654441833
+      ],
+      "hist_C016_04": [
+        0.6942998766899109,
+        0.8990587592124939
+      ],
+      "hist_C016_05": [
+        0.5028599500656128,
+        0.09583750367164612
+      ],
+      "hist_C016_06": [
+        0.5032250285148621,
+        0.09603607654571533
+      ],
+      "hist_C016_07": [
+        0.6943104863166809,
+        0.8990733623504639
+      ],
+      "hist_C016_08": [
+        0.2189192771911621,
+        -0.17273731529712677
+      ],
+      "hist_C016_09": [
+        -1.123097538948059,
+        -0.8872408866882324
+      ],
+      "hist_C020_00": [
+        0.5028631687164307,
+        0.0958421379327774
+      ],
+      "hist_C020_01": [
+        0.5028629302978516,
+        0.09583564847707748
+      ],
+      "hist_C020_02": [
+        -1.0115994215011597,
+        -1.2053277492523193
+      ],
+      "hist_C020_03": [
+        0.2189108282327652,
+        -0.17274059355258942
+      ],
+      "hist_C020_04": [
+        -1.0119409561157227,
+        -1.2056748867034912
+      ],
+      "hist_C020_05": [
+        -1.1231557130813599,
+        -0.8872743248939514
+      ],
+      "hist_C020_06": [
+        0.5028649568557739,
+        0.0958658829331398
+      ],
+      "hist_C020_07": [
+        0.5028723478317261,
+        0.09588153660297394
+      ],
+      "hist_C020_08": [
+        0.21893496811389923,
+        -0.17272840440273285
+      ],
+      "hist_C020_09": [
+        0.5029544234275818,
+        0.09622615575790405
+      ],
+      "prism_user_163": [
+        -0.017427261918783188,
+        -0.008096911013126373
+      ],
+      "prism_user_28": [
+        -0.01230153813958168,
+        -0.014795774593949318
+      ],
+      "prism_user_6": [
+        0.06432695686817169,
+        0.0700111836194992
+      ],
+      "prism_user_70": [
+        -0.03735069930553436,
+        -0.042416177690029144
+      ],
+      "prism_user_62": [
+        -0.014392878860235214,
+        -0.01300860196352005
+      ],
+      "prism_user_57": [
+        -0.03682553768157959,
+        -0.03367379680275917
+      ],
+      "prism_user_35": [
+        0.018187813460826874,
+        0.014789855107665062
+      ],
+      "prism_user_26": [
+        -0.009932015091180801,
+        -0.01182075496762991
+      ],
+      "prism_user_173": [
+        -0.014730516821146011,
+        -0.016710355877876282
+      ],
+      "prism_user_139": [
+        -0.06567193567752838,
+        -0.056422024965286255
+      ]
+    },
+    "per_voter_rankings": {
+      "hist_C016_00": [
+        1,
+        0
+      ],
+      "hist_C016_01": [
+        0,
+        1
+      ],
+      "hist_C016_02": [
+        0,
+        1
+      ],
+      "hist_C016_03": [
+        1,
+        0
+      ],
+      "hist_C016_04": [
+        1,
+        0
+      ],
+      "hist_C016_05": [
+        0,
+        1
+      ],
+      "hist_C016_06": [
+        0,
+        1
+      ],
+      "hist_C016_07": [
+        1,
+        0
+      ],
+      "hist_C016_08": [
+        0,
+        1
+      ],
+      "hist_C016_09": [
+        1,
+        0
+      ],
+      "hist_C020_00": [
+        0,
+        1
+      ],
+      "hist_C020_01": [
+        0,
+        1
+      ],
+      "hist_C020_02": [
+        0,
+        1
+      ],
+      "hist_C020_03": [
+        0,
+        1
+      ],
+      "hist_C020_04": [
+        0,
+        1
+      ],
+      "hist_C020_05": [
+        1,
+        0
+      ],
+      "hist_C020_06": [
+        0,
+        1
+      ],
+      "hist_C020_07": [
+        0,
+        1
+      ],
+      "hist_C020_08": [
+        0,
+        1
+      ],
+      "hist_C020_09": [
+        0,
+        1
+      ],
+      "prism_user_163": [
+        1,
+        0
+      ],
+      "prism_user_28": [
+        0,
+        1
+      ],
+      "prism_user_6": [
+        1,
+        0
+      ],
+      "prism_user_70": [
+        0,
+        1
+      ],
+      "prism_user_62": [
+        1,
+        0
+      ],
+      "prism_user_57": [
+        1,
+        0
+      ],
+      "prism_user_35": [
+        0,
+        1
+      ],
+      "prism_user_26": [
+        0,
+        1
+      ],
+      "prism_user_173": [
+        0,
+        1
+      ],
+      "prism_user_139": [
+        1,
+        0
+      ]
+    },
+    "average_ranks": [
+      1.3666666666666667,
+      1.6333333333333333
+    ],
+    "aggregations": {
+      "borda_count": {
+        "ranking": [
+          0,
+          1
+        ],
+        "winner_idx": 0
+      },
+      "plurality": {
+        "ranking": [
+          0,
+          1
+        ],
+        "winner_idx": 0
+      },
+      "copeland": {
+        "ranking": [
+          0,
+          1
+        ],
+        "winner_idx": 0
+      },
+      "instant_runoff": {
+        "ranking": [
+          0,
+          1
+        ],
+        "winner_idx": 0
+      }
+    },
+    "config": {
+      "k_responses": 5,
+      "m_voters": 10,
+      "methods": [
+        "borda_count",
+        "plurality",
+        "copeland",
+        "instant_runoff"
+      ],
+      "sampling": "per_group",
+      "sampling_config": {
+        "per_group_counts": {
+          "16C": 10,
+          "20C": 10,
+          "original": 10
+        }
+      },
+      "jury_sources": [
+        {
+          "label": "16C",
+          "count": null
+        },
+        {
+          "label": "20C",
+          "count": null
+        },
+        {
+          "label": "original",
+          "count": 10
+        }
+      ],
+      "seed": 42,
+      "inference_llm": null
+    }
+  }
+]

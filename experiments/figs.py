@@ -19,7 +19,16 @@ import numpy as np
 import torch
 import matplotlib as mpl
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
+from matplotlib.colors import LinearSegmentedColormap, Normalize
+
+# Custom white→pink colormap, distinct from "Purples" used for C016
+_PINK_CMAP = LinearSegmentedColormap.from_list(
+    "apa_pink", ["#ffffff", "#fbd5e3", "#f48fb1", "#ec407a", "#c2185b"]
+)
+try:
+    mpl.colormaps.register(_PINK_CMAP)
+except ValueError:
+    pass
 
 from apa.config import MODELS_DIR
 
@@ -81,7 +90,7 @@ def fig_user_weights_grid(
     groups = [
         ("PRISM", prism_rows, "Blues"),
         ("C016",  c016_rows,  "Purples"),
-        ("C020",  c020_rows,  "RdPu"),
+        ("C020",  c020_rows,  "apa_pink"),
     ]
 
     # Per-row normalization on |w|: weight magnitudes vary by orders of
@@ -135,19 +144,29 @@ def fig_user_weights_grid(
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    # Group brackets on the left
+    # Group brackets on the far left of the figure (outside row labels)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    # Find left edge of the row labels in axis coordinates so the bracket
+    # sits to the left of them and doesn't overlay the text.
+    label_left_disp = min(
+        t.get_window_extent(renderer=renderer).x0
+        for t in ax.get_yticklabels()
+    )
+    inv = ax.transAxes.inverted()
+    label_left_ax = inv.transform((label_left_disp, 0))[0]
+    bracket_x = label_left_ax - 0.04
+    label_x = bracket_x - 0.02
     trans = ax.get_yaxis_transform()
-    bracket_x = -0.18
-    label_x = -0.22
     for label, start, end, cmap_name in group_spans:
-        y0, y1 = start - 0.4, end - 1 + 0.4
+        y0, y1 = start - 0.45, (end - 1) + 0.45
         ax.plot([bracket_x, bracket_x], [y0, y1],
                 transform=trans, clip_on=False,
-                color=mpl.colormaps[cmap_name](0.75), linewidth=2.5)
+                color=mpl.colormaps[cmap_name](0.8), linewidth=2.8)
         ax.text(label_x, (y0 + y1) / 2, label,
                 transform=trans, ha="right", va="center",
                 fontsize=11, fontweight="bold",
-                color=mpl.colormaps[cmap_name](0.85))
+                color=mpl.colormaps[cmap_name](0.9))
 
     # Shared colorbar (neutral grey) showing the per-row normalized scale
     sm = ScalarMappable(norm=norm, cmap="Greys")

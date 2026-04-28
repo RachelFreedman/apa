@@ -84,8 +84,13 @@ def fig_user_weights_grid(
     adapted = _load_adapted_W(adapted_path)
 
     prism_rows = [(prism_ids[i], W_prism[i]) for i in range(2)]
-    c016_rows = [(f"hist_C016_{i:02d}", adapted[f"hist_C016_{i:02d}"]) for i in range(2)]
-    c020_rows = [(f"hist_C020_{i:02d}", adapted[f"hist_C020_{i:02d}"]) for i in range(2)]
+    # Adapted hist-llama vectors are essentially one-hot; pick the two
+    # users per century with the largest second-place weight so their
+    # rows show *some* secondary structure.
+    c016_picks = ["hist_C016_06", "hist_C016_02"]
+    c020_picks = ["hist_C020_09", "hist_C020_02"]
+    c016_rows = [(uid, adapted[uid]) for uid in c016_picks]
+    c020_rows = [(uid, adapted[uid]) for uid in c020_picks]
 
     groups = [
         ("PRISM", prism_rows, "Blues"),
@@ -97,7 +102,10 @@ def fig_user_weights_grid(
     # magnitude across PRISM (tiny continuous) vs. adapted (near one-hot)
     # users, so a shared scale collapses one group to white. Each row is
     # mapped to [0, 1] by its own max |w|.
-    norm = Normalize(vmin=0.0, vmax=1.0)
+    # Map 0 to a pale tint instead of pure white so empty cells still
+    # carry the row's group color.
+    PALE_FLOOR = 0.12
+    norm = Normalize(vmin=-PALE_FLOOR / (1 - PALE_FLOOR), vmax=1.0)
 
     n_rows = sum(len(rows) for _, rows, _ in groups)
     n_cols = K
@@ -136,7 +144,7 @@ def fig_user_weights_grid(
             ))
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels([f"$b_{{{i+1}}}$" for i in range(n_cols)])
+    ax.set_xticklabels([f"$V_{{{i}}}$" for i in range(n_cols)])
     ax.set_yticks(range(n_rows))
     ax.set_yticklabels(row_labels)
     ax.set_xlabel("Basis function")
@@ -167,13 +175,6 @@ def fig_user_weights_grid(
                 transform=trans, ha="right", va="center",
                 fontsize=11, fontweight="bold",
                 color=mpl.colormaps[cmap_name](0.9))
-
-    # Shared colorbar (neutral grey) showing the per-row normalized scale
-    sm = ScalarMappable(norm=norm, cmap="Greys")
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.04, pad=0.04, shrink=0.85)
-    cbar.set_label(r"Relative weight magnitude  $|w_k| / \max_k |w_k|$",
-                   rotation=90, labelpad=8)
-    cbar.outline.set_visible(False)
 
     ax.set_title("User weight vectors over LoRe basis", pad=12)
     fig.tight_layout()

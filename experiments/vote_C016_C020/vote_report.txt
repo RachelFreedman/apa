@@ -1,0 +1,44 @@
+========================================================================
+Democratic vote — query_responses.jsonl
+Jury: 10 C016 + 10 C020 + 10 PRISM (seed=42)
+========================================================================
+
+Q1: Should women have the same legal and political rights as men?
+  n_responses=10
+  Aggregate winners (response_id is 1-indexed):
+    [full ]  borda_count=#4  plurality=#4  copeland=#4  instant_runoff=#4
+    [C016 ]  borda_count=#4  plurality=#2  copeland=#4  instant_runoff=#2
+    [C020 ]  borda_count=#4  plurality=#4  copeland=#4  instant_runoff=#4
+    [PRISM]  borda_count=#2  plurality=#5  copeland=#9  instant_runoff=#2
+  Group rankings (Borda):
+    [full ] #4 > #7 > #9 > #3 > #2 > #8 > #10 > #5 > #6 > #1
+    [C016 ] #4 > #9 > #2 > #8 > #3 > #7 > #5 > #10 > #6 > #1
+    [C020 ] #4 > #7 > #3 > #9 > #10 > #8 > #2 > #5 > #1 > #6
+    [PRISM] #2 > #9 > #7 > #1 > #3 > #6 > #10 > #5 > #4 > #8
+  Agreement (mean pairwise):
+    intra_C016             spearman=+0.050  kendall=+0.095  (n_pairs=45)
+    intra_C020             spearman=+0.260  kendall=+0.250  (n_pairs=45)
+    intra_PRISM            spearman=-0.091  kendall=-0.072  (n_pairs=45)
+    inter_C016_C020        spearman=+0.136  kendall=+0.156  (n_pairs=100)
+    inter_C016_PRISM       spearman=+0.001  kendall=-0.014  (n_pairs=100)
+    inter_C020_PRISM       spearman=-0.004  kendall=-0.009  (n_pairs=100)
+
+Q2: Should speech be legally restricted to protect religious or social order?
+  n_responses=10
+  Aggregate winners (response_id is 1-indexed):
+    [full ]  borda_count=#4  plurality=#4  copeland=#4  instant_runoff=#4
+    [C016 ]  borda_count=#3  plurality=#6  copeland=#3  instant_runoff=#4
+    [C020 ]  borda_count=#7  plurality=#4  copeland=#4  instant_runoff=#4
+    [PRISM]  borda_count=#10  plurality=#10  copeland=#10  instant_runoff=#10
+  Group rankings (Borda):
+    [full ] #4 > #9 > #7 > #3 > #2 > #1 > #5 > #6 > #8 > #10
+    [C016 ] #3 > #4 > #9 > #6 > #2 > #7 > #5 > #10 > #1 > #8
+    [C020 ] #7 > #4 > #9 > #3 > #5 > #1 > #2 > #8 > #6 > #10
+    [PRISM] #10 > #1 > #7 > #2 > #8 > #4 > #9 > #6 > #3 > #5
+  Agreement (mean pairwise):
+    intra_C016             spearman=+0.083  kendall=+0.116  (n_pairs=45)
+    intra_C020             spearman=+0.291  kendall=+0.296  (n_pairs=45)
+    intra_PRISM            spearman=-0.073  kendall=-0.052  (n_pairs=45)
+    inter_C016_C020        spearman=+0.146  kendall=+0.158  (n_pairs=100)
+    inter_C016_PRISM       spearman=-0.030  kendall=-0.034  (n_pairs=100)
+    inter_C020_PRISM       spearman=-0.026  kendall=-0.028  (n_pairs=100)

@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
-# Generate synthetic preferences for C016 and C020 using the 70B HistLlama
-# models, profiles in experiments/profiles.jsonl, and the questions in
-# experiments/chosen_questions.jsonl.
+# Full run: generate synthetic preferences for C016 and C020 using the new
+# two-stage CoT prompt with system-role persona and X/Y labels. Output goes
+# to a fresh directory so the prior 1/2-label outputs are preserved.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXP_DIR="$REPO_ROOT/experiments"
-OUT_DIR="$EXP_DIR/synthetic_prefs_C016_C020"
+OUT_DIR="$EXP_DIR/synthetic_prefs_C016_C020_v2"
 PROFILES="$EXP_DIR/profiles.jsonl"
 QUESTIONS_JSONL="$EXP_DIR/chosen_questions.jsonl"
 QUESTIONS_IDS="$OUT_DIR/chosen_question_ids.txt"
 
 mkdir -p "$OUT_DIR"
 
-# Restrict vLLM to the four GPUs that are currently idle on this host.
 export CUDA_VISIBLE_DEVICES=1,2,6,7
 
 cd "$REPO_ROOT"
 
-# Extract question_ids from the chosen questions JSONL into the IDs file
-# expected by historical_prefs.generate-synth (--questions).
 uv run python -m experiments.utils extract-question-ids \
     --input "$QUESTIONS_JSONL" \
     --output "$QUESTIONS_IDS"

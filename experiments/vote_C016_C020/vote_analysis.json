@@ -301,27 +301,27 @@
         },
         "intra_20C": {
           "mean_spearman": 0.2597979797979798,
-          "mean_kendall_tau": 0.2503703703703704,
+          "mean_kendall_tau": 0.25037037037037035,
           "n_pairs": 45
         },
         "intra_original": {
           "mean_spearman": -0.09117845117845119,
-          "mean_kendall_tau": -0.07160493827160494,
+          "mean_kendall_tau": -0.07160493827160493,
           "n_pairs": 45
         },
         "inter_16C_20C": {
-          "mean_spearman": 0.1364848484848485,
-          "mean_kendall_tau": 0.15555555555555559,
+          "mean_spearman": 0.13648484848484846,
+          "mean_kendall_tau": 0.15555555555555556,
           "n_pairs": 100
         },
         "inter_16C_original": {
-          "mean_spearman": 0.0008484848484848695,
-          "mean_kendall_tau": -0.014222222222222225,
+          "mean_spearman": 0.0008484848484848479,
+          "mean_kendall_tau": -0.014222222222222207,
           "n_pairs": 100
         },
         "inter_20C_original": {
-          "mean_spearman": -0.004,
-          "mean_kendall_tau": -0.008888888888888894,
+          "mean_spearman": -0.003999999999999994,
+          "mean_kendall_tau": -0.008888888888888884,
           "n_pairs": 100
         }
       }
@@ -621,32 +621,32 @@
       "agreement": {
         "intra_16C": {
           "mean_spearman": 0.08255892255892257,
-          "mean_kendall_tau": 0.1160493827160494,
+          "mean_kendall_tau": 0.11604938271604937,
           "n_pairs": 45
         },
         "intra_20C": {
-          "mean_spearman": 0.29077441077441074,
-          "mean_kendall_tau": 0.2958024691358025,
+          "mean_spearman": 0.2907744107744107,
+          "mean_kendall_tau": 0.2958024691358024,
           "n_pairs": 45
         },
         "intra_original": {
-          "mean_spearman": -0.07340067340067341,
+          "mean_spearman": -0.0734006734006734,
           "mean_kendall_tau": -0.051851851851851864,
           "n_pairs": 45
         },
         "inter_16C_20C": {
-          "mean_spearman": 0.1464242424242424,
+          "mean_spearman": 0.14642424242424235,
           "mean_kendall_tau": 0.15822222222222224,
           "n_pairs": 100
         },
         "inter_16C_original": {
-          "mean_spearman": -0.02981818181818182,
-          "mean_kendall_tau": -0.03377777777777779,
+          "mean_spearman": -0.02981818181818179,
+          "mean_kendall_tau": -0.03377777777777778,
           "n_pairs": 100
         },
         "inter_20C_original": {
-          "mean_spearman": -0.02581818181818183,
-          "mean_kendall_tau": -0.02755555555555556,
+          "mean_spearman": -0.025818181818181803,
+          "mean_kendall_tau": -0.027555555555555555,
           "n_pairs": 100
         }
       }

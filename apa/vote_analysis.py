@@ -32,21 +32,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+from scipy.stats import kendalltau as _scipy_kendalltau
+from scipy.stats import spearmanr as _scipy_spearmanr
 
-from apa.levers.voter_aggregation import (
-    borda_count,
-    copeland,
-    instant_runoff,
-    plurality,
-)
-
-
-AGGREGATION_METHODS: dict[str, Callable[[dict, dict], list[int]]] = {
-    "borda_count": borda_count,
-    "plurality": plurality,
-    "copeland": copeland,
-    "instant_runoff": instant_runoff,
-}
+from apa.levers.voter_aggregation import AGGREGATION_METHODS
 
 
 # =============================================================================
@@ -54,49 +43,28 @@ AGGREGATION_METHODS: dict[str, Callable[[dict, dict], list[int]]] = {
 # =============================================================================
 
 
+def _to_position_vector(ranking: list[int]) -> list[int]:
+    """Convert a preference order (response indices) to a position vector."""
+    pos = [0] * len(ranking)
+    for p, idx in enumerate(ranking):
+        pos[idx] = p
+    return pos
+
+
 def spearman(rank_a: list[int], rank_b: list[int]) -> float:
     """Spearman ρ between two full rankings (lists of response indices)."""
-    n = len(rank_a)
-    if n != len(rank_b):
+    if len(rank_a) != len(rank_b):
         raise ValueError("Rankings have different lengths")
-    pos_a = [0] * n
-    pos_b = [0] * n
-    for p, idx in enumerate(rank_a):
-        pos_a[idx] = p
-    for p, idx in enumerate(rank_b):
-        pos_b[idx] = p
-    a = np.asarray(pos_a, dtype=float)
-    b = np.asarray(pos_b, dtype=float)
-    a -= a.mean()
-    b -= b.mean()
-    denom = float(np.sqrt((a * a).sum() * (b * b).sum()))
-    if denom == 0.0:
-        return float("nan")
-    return float((a * b).sum() / denom)
+    rho, _ = _scipy_spearmanr(_to_position_vector(rank_a), _to_position_vector(rank_b))
+    return float(rho)
 
 
 def kendall_tau(rank_a: list[int], rank_b: list[int]) -> float:
-    """Kendall τ between two full rankings (no ties expected)."""
-    n = len(rank_a)
-    if n != len(rank_b):
+    """Kendall τ-b between two full rankings (lists of response indices)."""
+    if len(rank_a) != len(rank_b):
         raise ValueError("Rankings have different lengths")
-    pos_a = [0] * n
-    pos_b = [0] * n
-    for p, idx in enumerate(rank_a):
-        pos_a[idx] = p
-    for p, idx in enumerate(rank_b):
-        pos_b[idx] = p
-    concordant = discordant = 0
-    for i, j in combinations(range(n), 2):
-        s = (pos_a[i] - pos_a[j]) * (pos_b[i] - pos_b[j])
-        if s > 0:
-            concordant += 1
-        elif s < 0:
-            discordant += 1
-    total = concordant + discordant
-    if total == 0:
-        return float("nan")
-    return (concordant - discordant) / total
+    tau, _ = _scipy_kendalltau(_to_position_vector(rank_a), _to_position_vector(rank_b))
+    return float(tau)
 
 
 def _mean_pairwise(

@@ -37,12 +37,7 @@ from apa.config import (
     configure_environment,
 )
 from apa.levers.slate_generation import temperature_sampling
-from apa.levers.voter_aggregation import (
-    borda_count,
-    copeland,
-    instant_runoff,
-    plurality,
-)
+from apa.levers.voter_aggregation import AGGREGATION_METHODS
 from apa.levers.voter_sampling import (
     random_sampling,
     stratified_sampling,
@@ -50,14 +45,6 @@ from apa.levers.voter_sampling import (
     weighted_sampling,
 )
 from apa.lore_adapt import LoReScorer
-
-
-AGGREGATION_METHODS: dict[str, Callable[[dict, dict], list[int]]] = {
-    "borda_count": borda_count,
-    "plurality": plurality,
-    "copeland": copeland,
-    "instant_runoff": instant_runoff,
-}
 
 SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
     "random": random_sampling,

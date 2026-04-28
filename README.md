@@ -48,10 +48,13 @@ uv run python -m apa.train_lore_bases --K_list 0,1 --n_users 50
 Generate preference data from HistLlama personas, then adapt per-user
 W vectors against the LoRe basis via few-shot fitting.
 
+**Prompting strategy:** each pair is judged via a two-stage chat-template flow — stage 1 asks the persona (in the system role) to reason briefly about the two responses (deterministically labelled "Response X" and "Response Y"), and stage 2 commits to a single guided-decoded token from `{"X","Y"}` so the calibrated soft-preference logprobs land on the first emitted token; both orderings of the pair are run and averaged, which symmetrically cancels the model's residual letter prior.
+
 ```bash
 # 3a. Generate synthetic preferences across centuries and profiles.
-# Inference is batched via vLLM with greedy guided decoding to {"1","2"};
-# the JSONL output carries per-pair logprobs alongside chosen/rejected.
+# Two-stage CoT inference batched via vLLM (stage 1: reasoning, stage 2:
+# guided-decode commit to {"X","Y"}); the JSONL output carries per-pair
+# reasoning + logprobs alongside chosen/rejected.
 uv run python -m apa.synthetic_prefs.historical_prefs generate-synth \
     --centuries C013 C017 C019 C021 --n-questions 20
 

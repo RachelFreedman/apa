@@ -130,6 +130,12 @@ def analyze_case(case: dict) -> dict[str, Any]:
         per_group_aggregations[scope] = per_method
 
     agreement: dict[str, dict[str, Any]] = {}
+    all_ranks = list(per_voter_rankings.values())
+    agreement["intra_full"] = {
+        "mean_spearman": _mean_pairwise(all_ranks, spearman),
+        "mean_kendall_tau": _mean_pairwise(all_ranks, kendall_tau),
+        "n_pairs": len(all_ranks) * (len(all_ranks) - 1) // 2,
+    }
     group_names = list(groups.keys())
     for g in group_names:
         ranks = [per_voter_rankings[u] for u in groups[g]]

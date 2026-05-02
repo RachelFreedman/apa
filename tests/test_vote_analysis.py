@@ -230,6 +230,13 @@ def test_analyze_case_agreement_metrics():
     assert agree["inter_16C_20C"]["mean_kendall_tau"] == pytest.approx(-1.0)
     assert agree["inter_16C_20C"]["n_pairs"] == 4
 
+    # Full jury (all voters together): 4 voters ⇒ C(4,2)=6 pairs. With two
+    # +1-correlated pairs intra-group and four −1-correlated cross-group
+    # pairs, mean ρ = (2*1 + 4*(-1)) / 6 = -1/3.
+    assert agree["intra_full"]["n_pairs"] == 6
+    assert agree["intra_full"]["mean_spearman"] == pytest.approx(-1.0 / 3.0)
+    assert agree["intra_full"]["mean_kendall_tau"] == pytest.approx(-1.0 / 3.0)
+
 
 def test_render_report_smoke():
     case = _synthetic_case()

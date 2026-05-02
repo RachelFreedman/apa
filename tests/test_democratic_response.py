@@ -452,8 +452,12 @@ class TestJurySourcesSelection:
         assert periods.count("21C") == 2
         assert periods.count("17C") == 2
         assert "13C" not in periods
-        # Audit log records the normalised jury_sources.
-        assert result.config["jury_sources"] == ["original", "21C", "17C"]
+        # Audit log records the normalised jury_sources as list[{label,count}].
+        assert result.config["jury_sources"] == [
+            {"label": "original", "count": None},
+            {"label": "21C", "count": None},
+            {"label": "17C", "count": None},
+        ]
 
     def test_empty_group_raises(self, monkeypatch):
         _patch_embedding(monkeypatch, D=16)

@@ -213,11 +213,18 @@ def _render_stage1_prompt(tokenizer: Any, messages: list[dict]) -> str:
 
 def _render_stage2_prompt(
     tokenizer: Any, messages: list[dict], stage1_text: str,
-) -> str:
-    """Render stage-2 prompt: chat history + assistant continuation ending in 'Answer: '."""
+) -> tuple[str, bool]:
+    """Render stage-2 prompt: chat history + assistant continuation ending in 'Answer: '.
+
+    Returns ``(rendered, recovered)`` where ``recovered`` is True if stage 1
+    failed to emit ``Answer:`` and we had to append it ourselves. Callers
+    can aggregate the recovery count for run diagnostics.
+    """
     continuation = stage1_text.rstrip()
+    recovered = False
     if "Answer:" not in continuation:
         continuation = continuation + "\n\nAnswer: "
+        recovered = True
     elif not continuation.endswith(" "):
         continuation = continuation + " "
 
@@ -225,18 +232,21 @@ def _render_stage2_prompt(
 
     if getattr(tokenizer, "chat_template", None) is not None:
         try:
-            return tokenizer.apply_chat_template(
-                extended,
-                tokenize=False,
-                add_generation_prompt=False,
-                continue_final_message=True,
+            return (
+                tokenizer.apply_chat_template(
+                    extended,
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    continue_final_message=True,
+                ),
+                recovered,
             )
         except (TypeError, ValueError):
             # Older templates may not support continue_final_message; fall
             # through to the simple fallback below.
             pass
     rendered = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in extended)
-    return rendered
+    return rendered, recovered
 
 
 def _resolve_choice_token_ids(tokenizer: Any) -> Tuple[int, int]:
@@ -250,8 +260,14 @@ def _resolve_choice_token_ids(tokenizer: Any) -> Tuple[int, int]:
     ids_x = tokenizer.encode("X", add_special_tokens=False)
     ids_y = tokenizer.encode("Y", add_special_tokens=False)
     if len(ids_x) != 1 or len(ids_y) != 1:
+        model_name = (
+            getattr(tokenizer, "name_or_path", None)
+            or getattr(tokenizer, "name", None)
+            or type(tokenizer).__name__
+        )
         raise RuntimeError(
-            f"Expected 'X' and 'Y' to be single tokens, got {ids_x} and {ids_y}."
+            f"Expected 'X' and 'Y' to be single tokens for tokenizer "
+            f"{model_name!r}, got {ids_x} and {ids_y}."
         )
     return ids_x[0], ids_y[0]
 
@@ -330,9 +346,13 @@ def generate_historical_preferences(
     stage1_texts = [o.outputs[0].text for o in stage1_outputs]
 
     stage2_prompts: list[str] = []
+    n_recovered = 0
     for i, (msgs_orig, msgs_rev) in enumerate(msgs_per_q):
-        stage2_prompts.append(_render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i]))
-        stage2_prompts.append(_render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1]))
+        p_o, rec_o = _render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i])
+        p_r, rec_r = _render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1])
+        stage2_prompts.append(p_o)
+        stage2_prompts.append(p_r)
+        n_recovered += int(rec_o) + int(rec_r)
 
     stage2_params = SamplingParams(
         temperature=0.0,
@@ -342,7 +362,8 @@ def generate_historical_preferences(
     )
 
     if show_progress:
-        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts...")
+        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts "
+              f"({n_recovered} stage-1 outputs missing 'Answer:' — appended as recovery)...")
 
     stage2_outputs = llm.generate(stage2_prompts, stage2_params, use_tqdm=show_progress)
 
@@ -625,9 +646,13 @@ def generate_century_prefs(
     stage1_texts = [o.outputs[0].text for o in stage1_outputs]
 
     stage2_prompts: list[str] = []
+    n_recovered = 0
     for i, (msgs_orig, msgs_rev) in enumerate(msgs_index):
-        stage2_prompts.append(_render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i]))
-        stage2_prompts.append(_render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1]))
+        p_o, rec_o = _render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i])
+        p_r, rec_r = _render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1])
+        stage2_prompts.append(p_o)
+        stage2_prompts.append(p_r)
+        n_recovered += int(rec_o) + int(rec_r)
 
     stage2_params = SamplingParams(
         temperature=0.0,
@@ -637,7 +662,8 @@ def generate_century_prefs(
     )
 
     if show_progress:
-        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts...")
+        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts "
+              f"({n_recovered} stage-1 outputs missing 'Answer:' — appended as recovery)...")
 
     stage2_outputs = llm.generate(stage2_prompts, stage2_params, use_tqdm=show_progress)
 

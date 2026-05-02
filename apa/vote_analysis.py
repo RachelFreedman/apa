@@ -108,15 +108,35 @@ def _group_voters(
     return groups
 
 
+# Sentinel scope key for the all-voters bucket. Underscored so it can't
+# collide with a real metadata "period" value like "16C" or even "full".
+ALL_SCOPE = "__all__"
+
+
 def analyze_case(case: dict) -> dict[str, Any]:
     """Compute per-group aggregations and agreement for one InferenceResult dict."""
     per_voter_rankings = {uid: list(r) for uid, r in case["per_voter_rankings"].items()}
     sampled_meta = case.get("sampled_user_metadata", {})
-    groups = _group_voters(case["sampled_user_ids"], sampled_meta)
+    # Defensive: only group voters that actually have rankings — partial
+    # logs (e.g. a crashed run) should produce a warning rather than KeyError.
+    valid_uids = [uid for uid in case["sampled_user_ids"] if uid in per_voter_rankings]
+    missing = set(case["sampled_user_ids"]) - set(valid_uids)
+    if missing:
+        print(f"[vote_analysis] warning: {len(missing)} sampled voter(s) "
+              f"missing from per_voter_rankings (skipping): {sorted(missing)[:5]}"
+              + ("..." if len(missing) > 5 else ""))
+    groups = _group_voters(valid_uids, sampled_meta)
 
     per_group_aggregations: dict[str, dict[str, dict[str, Any]]] = {}
-    scopes: dict[str, list[str]] = {"full": list(per_voter_rankings.keys())}
-    scopes.update(groups)
+    scopes: dict[str, list[str]] = {ALL_SCOPE: list(per_voter_rankings.keys())}
+    for g, users in groups.items():
+        # Guard against a hypothetical period == ALL_SCOPE collision; keep
+        # the all-voters scope authoritative.
+        if g == ALL_SCOPE:
+            print(f"[vote_analysis] warning: group label {g!r} collides with "
+                  f"all-voters sentinel; renaming group to {g + '_group'!r}.")
+            g = g + "_group"
+        scopes[g] = users
 
     for scope, users in scopes.items():
         sub = {u: per_voter_rankings[u] for u in users if u in per_voter_rankings}
@@ -129,29 +149,39 @@ def analyze_case(case: dict) -> dict[str, Any]:
             }
         per_group_aggregations[scope] = per_method
 
-    agreement: dict[str, dict[str, Any]] = {}
+    # Structured agreement entries: {"kind": "intra"|"inter", "scope"|"groups",
+    # "mean_spearman", "mean_kendall_tau", "n_pairs"}. Keeping this as a list
+    # of dicts (instead of stringly-typed "intra_<g>" / "inter_<g1>_<g2>" keys)
+    # lets group labels contain underscores without parsing ambiguity.
+    agreement: list[dict[str, Any]] = []
     all_ranks = list(per_voter_rankings.values())
-    agreement["intra_full"] = {
+    agreement.append({
+        "kind": "intra",
+        "scope": ALL_SCOPE,
         "mean_spearman": _mean_pairwise(all_ranks, spearman),
         "mean_kendall_tau": _mean_pairwise(all_ranks, kendall_tau),
         "n_pairs": len(all_ranks) * (len(all_ranks) - 1) // 2,
-    }
+    })
     group_names = list(groups.keys())
     for g in group_names:
         ranks = [per_voter_rankings[u] for u in groups[g]]
-        agreement[f"intra_{g}"] = {
+        agreement.append({
+            "kind": "intra",
+            "scope": g,
             "mean_spearman": _mean_pairwise(ranks, spearman),
             "mean_kendall_tau": _mean_pairwise(ranks, kendall_tau),
             "n_pairs": len(ranks) * (len(ranks) - 1) // 2,
-        }
+        })
     for g1, g2 in combinations(group_names, 2):
         r1 = [per_voter_rankings[u] for u in groups[g1]]
         r2 = [per_voter_rankings[u] for u in groups[g2]]
-        agreement[f"inter_{g1}_{g2}"] = {
+        agreement.append({
+            "kind": "inter",
+            "groups": [g1, g2],
             "mean_spearman": _mean_cross(r1, r2, spearman),
             "mean_kendall_tau": _mean_cross(r1, r2, kendall_tau),
             "n_pairs": len(r1) * len(r2),
-        }
+        })
 
     return {
         "query_id": case.get("query_id"),
@@ -197,7 +227,7 @@ def render_report(analysis: dict[str, Any]) -> str:
             f"{g}={len(users)}" for g, users in case["groups"].items()
         ))
 
-        scopes = ["full"] + list(case["groups"].keys())
+        scopes = [ALL_SCOPE] + list(case["groups"].keys())
         lines.append("  Aggregate winners (response_id is 1-indexed):")
         for scope in scopes:
             row = case["per_group_aggregations"][scope]
@@ -212,10 +242,15 @@ def render_report(analysis: dict[str, Any]) -> str:
             lines.append(f"    [{scope:<8}] {_format_ranking(r)}")
 
         lines.append("  Agreement (mean pairwise):")
-        for k, v in case["agreement"].items():
+        for entry in case["agreement"]:
+            if entry["kind"] == "intra":
+                label = f"intra[{entry['scope']}]"
+            else:
+                g1, g2 = entry["groups"]
+                label = f"inter[{g1} ↔ {g2}]"
             lines.append(
-                f"    {k:<28} spearman={v['mean_spearman']:+.3f}  "
-                f"kendall={v['mean_kendall_tau']:+.3f}  (n_pairs={v['n_pairs']})"
+                f"    {label:<32} spearman={entry['mean_spearman']:+.3f}  "
+                f"kendall={entry['mean_kendall_tau']:+.3f}  (n_pairs={entry['n_pairs']})"
             )
 
     return "\n".join(lines) + "\n"

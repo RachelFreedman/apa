@@ -126,12 +126,10 @@ def test_per_group_counts_take_all_and_sample(monkeypatch):
     assert periods.count("original") == 5  # 5 sampled PRISM
     assert len(result.sampled_user_ids) == 25
 
-    # Audit log records label+count when explicit counts are present.
+    # Audit log always records list[{label,count}] (count=None means "all").
     js = result.config["jury_sources"]
-    assert isinstance(js, list) and isinstance(js[0], dict)
+    assert isinstance(js, list) and all(isinstance(e, dict) for e in js)
     counts = {entry["label"]: entry["count"] for entry in js}
-    # Bare labels are recorded with count=None (i.e. "all available"); only
-    # explicit counts round-trip as integers.
     assert counts == {"16C": None, "20C": None, "original": 5}
 
 
@@ -167,8 +165,12 @@ def test_bare_labels_preserve_legacy_stratified(monkeypatch):
     assert periods.count("original") == 2
     assert periods.count("16C") == 2
     assert periods.count("20C") == 2
-    # Legacy log shape preserved when no counts are explicit.
-    assert result.config["jury_sources"] == ["original", "16C", "20C"]
+    # Even with no explicit counts, log uses uniform list[{label,count=None}].
+    assert result.config["jury_sources"] == [
+        {"label": "original", "count": None},
+        {"label": "16C", "count": None},
+        {"label": "20C", "count": None},
+    ]
 
 
 # =============================================================================
@@ -213,7 +215,7 @@ def test_analyze_case_groups_and_aggregations():
     pg = analysis["per_group_aggregations"]
     assert pg["16C"]["borda_count"]["winner_idx"] == 0
     assert pg["20C"]["borda_count"]["winner_idx"] == 3
-    assert sorted(pg["full"]["borda_count"]["ranking"]) == [0, 1, 2, 3]
+    assert sorted(pg["__all__"]["borda_count"]["ranking"]) == [0, 1, 2, 3]
 
 
 def test_analyze_case_agreement_metrics():
@@ -221,21 +223,32 @@ def test_analyze_case_agreement_metrics():
     analysis = analyze_case(case)
     agree = analysis["agreement"]
 
+    def find_intra(scope):
+        return next(e for e in agree if e["kind"] == "intra" and e["scope"] == scope)
+
+    def find_inter(g1, g2):
+        return next(
+            e for e in agree
+            if e["kind"] == "inter" and set(e["groups"]) == {g1, g2}
+        )
+
     # Identical rankings within each group ⇒ ρ=τ=+1.
-    assert agree["intra_16C"]["mean_spearman"] == pytest.approx(1.0)
-    assert agree["intra_20C"]["mean_kendall_tau"] == pytest.approx(1.0)
+    assert find_intra("16C")["mean_spearman"] == pytest.approx(1.0)
+    assert find_intra("20C")["mean_kendall_tau"] == pytest.approx(1.0)
 
     # Reversed rankings between groups ⇒ ρ=τ=-1.
-    assert agree["inter_16C_20C"]["mean_spearman"] == pytest.approx(-1.0)
-    assert agree["inter_16C_20C"]["mean_kendall_tau"] == pytest.approx(-1.0)
-    assert agree["inter_16C_20C"]["n_pairs"] == 4
+    inter = find_inter("16C", "20C")
+    assert inter["mean_spearman"] == pytest.approx(-1.0)
+    assert inter["mean_kendall_tau"] == pytest.approx(-1.0)
+    assert inter["n_pairs"] == 4
 
     # Full jury (all voters together): 4 voters ⇒ C(4,2)=6 pairs. With two
     # +1-correlated pairs intra-group and four −1-correlated cross-group
     # pairs, mean ρ = (2*1 + 4*(-1)) / 6 = -1/3.
-    assert agree["intra_full"]["n_pairs"] == 6
-    assert agree["intra_full"]["mean_spearman"] == pytest.approx(-1.0 / 3.0)
-    assert agree["intra_full"]["mean_kendall_tau"] == pytest.approx(-1.0 / 3.0)
+    full = find_intra("__all__")
+    assert full["n_pairs"] == 6
+    assert full["mean_spearman"] == pytest.approx(-1.0 / 3.0)
+    assert full["mean_kendall_tau"] == pytest.approx(-1.0 / 3.0)
 
 
 def test_render_report_smoke():
@@ -243,8 +256,8 @@ def test_render_report_smoke():
     analysis = analyze_audit_log([case])
     report = render_report(analysis)
     assert "Vote analysis — 1 case(s)" in report
-    assert "intra_16C" in report
-    assert "inter_16C_20C" in report
+    assert "intra[16C]" in report
+    assert "inter[16C ↔ 20C]" in report
     # No NaNs leaking into output for fully-defined inputs.
     assert "nan" not in report.lower()
 

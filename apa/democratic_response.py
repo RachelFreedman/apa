@@ -242,6 +242,24 @@ _SOURCE_ALIASES = {"prism": "original", "original": "original"}
 _PERIOD_LABEL_RE = re.compile(r"^\s*C?0*(\d{1,3})C?\s*$", re.IGNORECASE)
 
 
+def _normalize_source_label(label: str) -> str:
+    """Normalise a jury-source label to the internal 'period' form.
+
+    Accepts 'prism'/'original' and century variants like 'C21', 'C017',
+    '21C', '17c'. Returns 'original' or 'NC' (e.g. '21C'). Unknown
+    labels pass through unchanged.
+    """
+    s = label.strip()
+    if not s:
+        return s
+    if s.lower() in _SOURCE_ALIASES:
+        return _SOURCE_ALIASES[s.lower()]
+    m = _PERIOD_LABEL_RE.match(s)
+    if m:
+        return f"{int(m.group(1))}C"
+    return s
+
+
 def parse_jury_source_spec(spec: str) -> tuple[str, int | None]:
     """
     Parse one ``--jury_sources`` token into (normalised_label, count).
@@ -274,24 +292,6 @@ def parse_jury_source_spec(spec: str) -> tuple[str, int | None]:
                 raise ValueError(f"Jury source count must be >= 0, got {n} in '{spec}'")
             return _normalize_source_label(label), n
     return _normalize_source_label(raw), None
-
-
-def _normalize_source_label(label: str) -> str:
-    """Normalise a jury-source label to the internal 'period' form.
-
-    Accepts 'prism'/'original' and century variants like 'C21', 'C017',
-    '21C', '17c'. Returns 'original' or 'NC' (e.g. '21C'). Unknown
-    labels pass through unchanged.
-    """
-    s = label.strip()
-    if not s:
-        return s
-    if s.lower() in _SOURCE_ALIASES:
-        return _SOURCE_ALIASES[s.lower()]
-    m = _PERIOD_LABEL_RE.match(s)
-    if m:
-        return f"{int(m.group(1))}C"
-    return s
 
 
 def _period_for_user(user_id: str, origin: str) -> str:
@@ -611,6 +611,9 @@ class DemocraticInference:
                                 f"Requested {requested_n} voters from '{label}' "
                                 f"but only {len(members)} are available."
                             )
+                        # Determinism comes from the global random.seed() call
+                        # at the top of __call__; do not pass a per-call seed
+                        # here or it will desync from per_voter_rankings.
                         sampled_user_ids.extend(random.sample(members, requested_n))
                 sampling_strategy = "per_group"
                 sample_config = {
@@ -704,16 +707,15 @@ class DemocraticInference:
                 "methods": list(self.methods),
                 "sampling": sampling_strategy,
                 "sampling_config": dict(sample_config),
+                # Always serialised as a list of {label, count} dicts (or
+                # None when no jury_sources were set). count=None means
+                # "include every available voter in that group".
                 "jury_sources": (
-                    [label for label, _ in self.jury_sources]
-                    if self.jury_sources and not any(c is not None for _, c in self.jury_sources)
-                    else (
-                        [
-                            {"label": label, "count": count}
-                            for label, count in self.jury_sources
-                        ]
-                        if self.jury_sources else None
-                    )
+                    [
+                        {"label": label, "count": count}
+                        for label, count in self.jury_sources
+                    ]
+                    if self.jury_sources else None
                 ),
                 "seed": self.seed,
                 # The inference LLM only matters when WE generated responses.

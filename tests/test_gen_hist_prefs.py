@@ -387,19 +387,22 @@ class TestRenderPrompts:
         tok = _StubTokenizer()
         messages = _build_comparison_messages("Q?", "r1", "r2", "P")
         stage1_text = "Response Y matches my values better.\nAnswer: Y"
-        rendered = _render_stage2_prompt(tok, messages, stage1_text)
+        rendered, recovered = _render_stage2_prompt(tok, messages, stage1_text)
         # Continuation flag passed through stub tokenizer.
         assert "<<CONTINUE>>" in rendered
         # The stage-1 text appears in the assistant turn.
         assert "matches my values" in rendered
+        # Stage 1 emitted "Answer:", so no recovery was needed.
+        assert recovered is False
 
     def test_stage2_appends_answer_prefix_when_missing(self):
         tok = _StubTokenizer()
         messages = _build_comparison_messages("Q?", "r1", "r2", "P")
         # Reasoning that did not produce an "Answer:" line.
         stage1_text = "I prefer the second response on balance."
-        rendered = _render_stage2_prompt(tok, messages, stage1_text)
+        rendered, recovered = _render_stage2_prompt(tok, messages, stage1_text)
         assert "Answer:" in rendered
+        assert recovered is True
 
 
 class TestResolveChoiceTokenIds:

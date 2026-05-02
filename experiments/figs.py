@@ -59,6 +59,62 @@ def _load_adapted_W(path: Path) -> dict[str, np.ndarray]:
     return {uid: data["w"].float().numpy() for uid, data in ckpt["users"].items()}
 
 
+def _top_second_place_users(
+    adapted: dict[str, np.ndarray],
+    prefix: str,
+    n: int = 2,
+) -> list[str]:
+    """Pick the ``n`` users (by id prefix) with the largest second-place |w|.
+
+    Adapted hist-llama vectors are essentially one-hot; ranking by the
+    runner-up coordinate's absolute value highlights users with the most
+    visible secondary structure (which is what makes the figure rows look
+    interesting). Falls back to lexicographic order on ties.
+    """
+    candidates = [(uid, w) for uid, w in adapted.items() if uid.startswith(prefix)]
+    if not candidates:
+        raise ValueError(f"No adapted users with prefix {prefix!r} in checkpoint")
+
+    def _second_place(w: np.ndarray) -> float:
+        absw = np.sort(np.abs(w))[::-1]
+        return float(absw[1]) if len(absw) >= 2 else 0.0
+
+    candidates.sort(key=lambda kv: (-_second_place(kv[1]), kv[0]))
+    return [uid for uid, _ in candidates[:n]]
+
+
+def _draw_group_brackets(
+    fig,
+    ax,
+    group_spans: list[tuple[str, int, int, str]],
+) -> None:
+    """Draw colored vertical brackets + bold labels to the left of yticklabels.
+
+    Shared between figures so they stay visually consistent. ``group_spans``
+    is a list of ``(label, start_row, end_row_exclusive, cmap_name)`` tuples.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    label_left_disp = min(
+        t.get_window_extent(renderer=renderer).x0
+        for t in ax.get_yticklabels()
+    )
+    inv = ax.transAxes.inverted()
+    label_left_ax = inv.transform((label_left_disp, 0))[0]
+    bracket_x = label_left_ax - 0.04
+    label_x = bracket_x - 0.02
+    trans = ax.get_yaxis_transform()
+    for label, start, end, cmap_name in group_spans:
+        y0, y1 = start - 0.45, (end - 1) + 0.45
+        ax.plot([bracket_x, bracket_x], [y0, y1],
+                transform=trans, clip_on=False,
+                color=mpl.colormaps[cmap_name](0.8), linewidth=2.8)
+        ax.text(label_x, (y0 + y1) / 2, label,
+                transform=trans, ha="right", va="center",
+                fontsize=11, fontweight="bold",
+                color=mpl.colormaps[cmap_name](0.9))
+
+
 # =============================================================================
 # Figure 1: user-weights grid
 # =============================================================================
@@ -87,8 +143,8 @@ def fig_user_weights_grid(
     # Adapted hist-llama vectors are essentially one-hot; pick the two
     # users per century with the largest second-place weight so their
     # rows show *some* secondary structure.
-    c016_picks = ["hist_C016_06", "hist_C016_02"]
-    c020_picks = ["hist_C020_09", "hist_C020_02"]
+    c016_picks = _top_second_place_users(adapted, "hist_C016_", n=2)
+    c020_picks = _top_second_place_users(adapted, "hist_C020_", n=2)
     c016_rows = [(uid, adapted[uid]) for uid in c016_picks]
     c020_rows = [(uid, adapted[uid]) for uid in c020_picks]
 
@@ -152,29 +208,7 @@ def fig_user_weights_grid(
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-    # Group brackets on the far left of the figure (outside row labels)
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    # Find left edge of the row labels in axis coordinates so the bracket
-    # sits to the left of them and doesn't overlay the text.
-    label_left_disp = min(
-        t.get_window_extent(renderer=renderer).x0
-        for t in ax.get_yticklabels()
-    )
-    inv = ax.transAxes.inverted()
-    label_left_ax = inv.transform((label_left_disp, 0))[0]
-    bracket_x = label_left_ax - 0.04
-    label_x = bracket_x - 0.02
-    trans = ax.get_yaxis_transform()
-    for label, start, end, cmap_name in group_spans:
-        y0, y1 = start - 0.45, (end - 1) + 0.45
-        ax.plot([bracket_x, bracket_x], [y0, y1],
-                transform=trans, clip_on=False,
-                color=mpl.colormaps[cmap_name](0.8), linewidth=2.8)
-        ax.text(label_x, (y0 + y1) / 2, label,
-                transform=trans, ha="right", va="center",
-                fontsize=11, fontweight="bold",
-                color=mpl.colormaps[cmap_name](0.9))
+    _draw_group_brackets(fig, ax, group_spans)
 
     ax.set_title("User weight vectors over LoRe basis", pad=12)
     fig.tight_layout()
@@ -306,27 +340,7 @@ def fig_jury_agreement_heatmap(
         ax.axhline(end - 0.5, color="black", linewidth=1.0)
         ax.axvline(end - 0.5, color="black", linewidth=1.0)
 
-    # Group brackets on the far left, matching user_weights_grid styling.
-    fig.canvas.draw()
-    renderer = fig.canvas.get_renderer()
-    label_left_disp = min(
-        t.get_window_extent(renderer=renderer).x0
-        for t in ax.get_yticklabels()
-    )
-    inv = ax.transAxes.inverted()
-    label_left_ax = inv.transform((label_left_disp, 0))[0]
-    bracket_x = label_left_ax - 0.04
-    label_x = bracket_x - 0.02
-    trans = ax.get_yaxis_transform()
-    for label, start, end, cmap_name in group_spans:
-        y0, y1 = start - 0.45, (end - 1) + 0.45
-        ax.plot([bracket_x, bracket_x], [y0, y1],
-                transform=trans, clip_on=False,
-                color=mpl.colormaps[cmap_name](0.8), linewidth=2.8)
-        ax.text(label_x, (y0 + y1) / 2, label,
-                transform=trans, ha="right", va="center",
-                fontsize=11, fontweight="bold",
-                color=mpl.colormaps[cmap_name](0.9))
+    _draw_group_brackets(fig, ax, group_spans)
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label("Spearman ρ")

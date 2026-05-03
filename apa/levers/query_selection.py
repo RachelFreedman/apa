@@ -1,5 +1,16 @@
 """
-Question selection strategies for historical user training.
+Question selection strategies — methods for picking which PRISM questions
+to put to a historical (e.g. HistLlama) persona during synthetic
+preference generation.
+
+Used by ``apa.synthetic_prefs.historical_prefs`` to drive the question
+loop when generating per-persona preferences.
+
+Strategies:
+- random_subset: Uniformly random sample of N questions.
+- select_by_ids: Filter by an explicit list of ``question_id``s
+  (used to consume the curated question set in
+  ``experiments/chosen_questions.jsonl``).
 """
 
 from __future__ import annotations

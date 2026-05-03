@@ -12,6 +12,10 @@ import pytest
 
 from apa.synthetic_prefs.historical_prefs import (
     VALID_CENTURIES,
+    _build_comparison_messages,
+    _render_stage1_prompt,
+    _render_stage2_prompt,
+    _resolve_choice_token_ids,
     load_curated_question_ids,
     load_profiles,
     results_to_jsonl_records,
@@ -295,3 +299,123 @@ class TestRandomPrefsByQuestions:
         chosen_values = {p.chosen for p in result["u0"]}
         # Should have both A and B as chosen (some flipped, some not)
         assert chosen_values == {"A", "B"}
+
+
+# ---------------------------------------------------------------------------
+# Prompt construction (system-role persona, X/Y labels, two-stage CoT)
+# ---------------------------------------------------------------------------
+
+
+class _StubTokenizer:
+    """Minimal tokenizer stub for prompt-rendering tests (no HF dependency)."""
+
+    chat_template = "stub"
+    _encode_map = {"X": [88], "Y": [89], "1": [16], "2": [17]}
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False,
+                            continue_final_message=False):
+        # Render each turn as "[ROLE]\ncontent" so tests can grep substrings.
+        parts = [f"[{m['role'].upper()}]\n{m['content']}" for m in messages]
+        rendered = "\n\n".join(parts)
+        if add_generation_prompt:
+            rendered += "\n\n[ASSISTANT]\n"
+        if continue_final_message:
+            rendered += "<<CONTINUE>>"
+        return rendered
+
+    def encode(self, text, add_special_tokens=False):
+        if text not in self._encode_map:
+            raise KeyError(f"stub tokenizer has no mapping for {text!r}")
+        return self._encode_map[text]
+
+
+class TestComparisonMessages:
+    """Persona must be in the system role, labels must be X/Y, no legacy 1/2."""
+
+    def test_uses_system_role_with_persona(self):
+        messages = _build_comparison_messages(
+            prompt="What should I do?",
+            response_first="resp one",
+            response_second="resp two",
+            user_profile="A 17th-century Dutch jurist",
+        )
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[1]["role"] == "user"
+        assert "Dutch jurist" in messages[0]["content"]
+
+    def test_uses_xy_labels_in_user_turn(self):
+        messages = _build_comparison_messages(
+            prompt="Q?", response_first="r1", response_second="r2", user_profile="P",
+        )
+        user_text = messages[1]["content"]
+        assert "Response X:" in user_text
+        assert "Response Y:" in user_text
+        assert "Answer: X" in user_text
+        assert "Answer: Y" in user_text
+
+    def test_no_legacy_label_leak(self):
+        """Regression guard: no Option 1/2 or A/B labels remain anywhere."""
+        messages = _build_comparison_messages(
+            prompt="Q?", response_first="r1", response_second="r2", user_profile="P",
+        )
+        joined = "\n".join(m["content"] for m in messages)
+        for forbidden in ("Option 1", "Option 2", "number 1 or 2",
+                          "Response A", "Response B", "Answer: A", "Answer: B"):
+            assert forbidden not in joined, f"Found legacy label {forbidden!r}"
+
+    def test_no_profile_uses_impartial_system(self):
+        messages = _build_comparison_messages(
+            prompt="Q?", response_first="r1", response_second="r2", user_profile=None,
+        )
+        assert messages[0]["role"] == "system"
+        assert "impartial" in messages[0]["content"].lower()
+
+
+
+class TestRenderPrompts:
+    """Both stage-1 and stage-2 renderers should round-trip through the chat template."""
+
+    def test_stage1_includes_assistant_marker(self):
+        tok = _StubTokenizer()
+        messages = _build_comparison_messages("Q?", "r1", "r2", "P")
+        rendered = _render_stage1_prompt(tok, messages)
+        assert "[SYSTEM]" in rendered and "[USER]" in rendered
+        assert rendered.endswith("[ASSISTANT]\n")
+
+    def test_stage2_appends_assistant_continuation(self):
+        tok = _StubTokenizer()
+        messages = _build_comparison_messages("Q?", "r1", "r2", "P")
+        stage1_text = "Response Y matches my values better.\nAnswer: Y"
+        rendered, recovered = _render_stage2_prompt(tok, messages, stage1_text)
+        # Continuation flag passed through stub tokenizer.
+        assert "<<CONTINUE>>" in rendered
+        # The stage-1 text appears in the assistant turn.
+        assert "matches my values" in rendered
+        # Stage 1 emitted "Answer:", so no recovery was needed.
+        assert recovered is False
+
+    def test_stage2_appends_answer_prefix_when_missing(self):
+        tok = _StubTokenizer()
+        messages = _build_comparison_messages("Q?", "r1", "r2", "P")
+        # Reasoning that did not produce an "Answer:" line.
+        stage1_text = "I prefer the second response on balance."
+        rendered, recovered = _render_stage2_prompt(tok, messages, stage1_text)
+        assert "Answer:" in rendered
+        assert recovered is True
+
+
+class TestResolveChoiceTokenIds:
+    """Token resolver returns IDs for X/Y, not 1/2."""
+
+    def test_returns_xy_ids(self):
+        tok = _StubTokenizer()
+        ids = _resolve_choice_token_ids(tok)
+        assert ids == (88, 89)
+
+    def test_raises_when_not_single_token(self):
+        class MultiTokenTokenizer(_StubTokenizer):
+            _encode_map = {"X": [88, 1], "Y": [89]}
+
+        with pytest.raises(RuntimeError, match="single tokens"):
+            _resolve_choice_token_ids(MultiTokenTokenizer())

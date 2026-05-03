@@ -155,51 +155,121 @@ def load_hist_llama(
 # Preference Generation
 # =============================================================================
 
-def _build_comparison_prompt(
-    tokenizer: Any,
+def _build_comparison_messages(
     prompt: str,
-    response_1: str,
-    response_2: str,
+    response_first: str,
+    response_second: str,
     user_profile: str | None,
-) -> str:
-    """Format a single pairwise comparison prompt with optional user profile."""
+) -> list[dict]:
+    """Build the chat-message list for a pairwise comparison.
+
+    The persona goes in the system role (not stuffed into the user turn) and
+    responses are deterministically labelled X (first) and Y (second).  This
+    is paired with the two-orderings averaging in
+    :func:`preference_from_logprobs`, which symmetrically cancels out any
+    letter-specific prior in the soft-preference signal — randomizing labels
+    breaks that cancellation and was empirically worse.
+    """
     if user_profile:
-        content = (
-            f"You are: {user_profile}\n\n"
-            f"Given your perspective, which response do you prefer?\n\n"
-            f"Question: {prompt}\n\nOption 1: {response_1}\n\nOption 2: {response_2}\n\n"
-            f"Answer with only the number 1 or 2."
+        system = (
+            f"You are {user_profile}\n\n"
+            "When evaluating two responses, briefly weigh which one better matches "
+            "your perspective, then commit to a single letter."
         )
     else:
-        content = (
-            f"Question: {prompt}\n\nOption 1: {response_1}\n\nOption 2: {response_2}\n\n"
-            f"Which option is better? Answer with only the number 1 or 2."
+        system = (
+            "You are an impartial evaluator. Compare two responses on their merits "
+            "and commit to a single letter."
         )
 
+    user = (
+        f"Question: {prompt}\n\n"
+        f"Response X: {response_first}\n\n"
+        f"Response Y: {response_second}\n\n"
+        "In at most 3 sentences, reason about which response is better from your "
+        "perspective. Then on a new line write exactly one of:\n"
+        "Answer: X\n"
+        "Answer: Y"
+    )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def _render_stage1_prompt(tokenizer: Any, messages: list[dict]) -> str:
+    """Render the chat messages into a stage-1 (reasoning) prompt string."""
     if getattr(tokenizer, "chat_template", None) is not None:
         return tokenizer.apply_chat_template(
-            [{"role": "user", "content": content}],
+            messages,
             tokenize=False,
             add_generation_prompt=True,
         )
-    return f'{content}\n\nAnswer with just the number "1" or just the number "2".'
+    # Fallback for tokenizers without chat templates: linear concatenation.
+    rendered = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in messages)
+    return rendered + "\n\n[ASSISTANT]\n"
+
+
+def _render_stage2_prompt(
+    tokenizer: Any, messages: list[dict], stage1_text: str,
+) -> tuple[str, bool]:
+    """Render stage-2 prompt: chat history + assistant continuation ending in 'Answer: '.
+
+    Returns ``(rendered, recovered)`` where ``recovered`` is True if stage 1
+    failed to emit ``Answer:`` and we had to append it ourselves. Callers
+    can aggregate the recovery count for run diagnostics.
+    """
+    continuation = stage1_text.rstrip()
+    recovered = False
+    if "Answer:" not in continuation:
+        continuation = continuation + "\n\nAnswer: "
+        recovered = True
+    elif not continuation.endswith(" "):
+        continuation = continuation + " "
+
+    extended = list(messages) + [{"role": "assistant", "content": continuation}]
+
+    if getattr(tokenizer, "chat_template", None) is not None:
+        try:
+            return (
+                tokenizer.apply_chat_template(
+                    extended,
+                    tokenize=False,
+                    add_generation_prompt=False,
+                    continue_final_message=True,
+                ),
+                recovered,
+            )
+        except (TypeError, ValueError):
+            # Older templates may not support continue_final_message; fall
+            # through to the simple fallback below.
+            pass
+    rendered = "\n\n".join(f"[{m['role'].upper()}]\n{m['content']}" for m in extended)
+    return rendered, recovered
 
 
 def _resolve_choice_token_ids(tokenizer: Any) -> Tuple[int, int]:
-    """Token id for "1" and "2" as emitted by ``guided_choice=["1","2"]``.
+    """Token id for "X" and "Y" as emitted by ``guided_choice=["X","Y"]``.
 
     vLLM's guided decoding constrains the output to one of the strings, but
-    the actual emitted token is still tokenizer-dependent.  For all Llama-3
-    tokenizers ``"1"`` and ``"2"`` are single tokens, so we look up the id
+    the actual emitted token is still tokenizer-dependent.  For Llama-3
+    tokenizers ``"X"`` and ``"Y"`` are single tokens, so we look up the id
     directly.
     """
-    ids_1 = tokenizer.encode("1", add_special_tokens=False)
-    ids_2 = tokenizer.encode("2", add_special_tokens=False)
-    if len(ids_1) != 1 or len(ids_2) != 1:
-        raise RuntimeError(
-            f"Expected '1' and '2' to be single tokens, got {ids_1} and {ids_2}."
+    ids_x = tokenizer.encode("X", add_special_tokens=False)
+    ids_y = tokenizer.encode("Y", add_special_tokens=False)
+    if len(ids_x) != 1 or len(ids_y) != 1:
+        model_name = (
+            getattr(tokenizer, "name_or_path", None)
+            or getattr(tokenizer, "name", None)
+            or type(tokenizer).__name__
         )
-    return ids_1[0], ids_2[0]
+        raise RuntimeError(
+            f"Expected 'X' and 'Y' to be single tokens for tokenizer "
+            f"{model_name!r}, got {ids_x} and {ids_y}."
+        )
+    return ids_x[0], ids_y[0]
 
 
 def _probs_from_logprobs(
@@ -233,54 +303,78 @@ def generate_historical_preferences(
     user_profile: str | None = None,
     show_progress: bool = True,
 ) -> list[dict]:
-    """Generate preferences for many question pairs in a single batched vLLM call.
+    """Generate preferences for many question pairs via a two-stage CoT flow.
 
-    For every question we issue two prompts — original order and reversed
-    order — and combine the per-direction probabilities of "1" / "2" via
-    :func:`preference_from_logprobs`.  The whole batch (``2 * len(questions)``
-    prompts) goes through ``LLM.generate`` once, which is the entire point of
-    the optimization: the GPU stays saturated with PagedAttention + continuous
-    batching instead of doing one tiny forward pass per Python iteration.
+    For every question we issue two orderings (original and reversed). Each
+    ordering goes through two batched ``LLM.generate`` calls:
 
-    Decoding is greedy (``temperature=0.0``, ``max_tokens=1``) and constrained
-    to ``["1", "2"]``, so the returned probability mass is exactly the
-    calibrated soft preference signal.
+      * **Stage 1** (reasoning): unconstrained decoding up to 150 tokens. The
+        model writes a short rationale ending in "Answer: X" or "Answer: Y".
+      * **Stage 2** (commitment): the stage-1 text is appended as a partial
+        assistant turn ending in "Answer: " and the model emits one
+        guided-choice token from ``{"X","Y"}``. The single-token logprobs are
+        the calibrated soft-preference signal that downstream code consumes.
+
+    Persona is placed in the system role and labels are X/Y (not 1/2) — both
+    choices reduce position bias relative to the original prompt.
     """
     from vllm import SamplingParams
     from vllm.sampling_params import GuidedDecodingParams
 
-    token_id_1, token_id_2 = _resolve_choice_token_ids(tokenizer)
+    token_id_x, token_id_y = _resolve_choice_token_ids(tokenizer)
 
-    prompts: list[str] = []
+    msgs_per_q: list[tuple[list[dict], list[dict]]] = []
+    stage1_prompts: list[str] = []
     for q in questions:
-        prompts.append(_build_comparison_prompt(
-            tokenizer, q["prompt"], q["response_1"], q["response_2"], user_profile,
-        ))
-        prompts.append(_build_comparison_prompt(
-            tokenizer, q["prompt"], q["response_2"], q["response_1"], user_profile,
-        ))
+        msgs_orig = _build_comparison_messages(
+            q["prompt"], q["response_1"], q["response_2"], user_profile,
+        )
+        msgs_rev = _build_comparison_messages(
+            q["prompt"], q["response_2"], q["response_1"], user_profile,
+        )
+        msgs_per_q.append((msgs_orig, msgs_rev))
+        stage1_prompts.append(_render_stage1_prompt(tokenizer, msgs_orig))
+        stage1_prompts.append(_render_stage1_prompt(tokenizer, msgs_rev))
 
-    sampling_params = SamplingParams(
+    stage1_params = SamplingParams(temperature=0.0, max_tokens=150)
+
+    if show_progress:
+        print(f"[stage 1] reasoning over {len(stage1_prompts)} prompts "
+              f"({len(questions)} questions × 2 orderings)...")
+
+    stage1_outputs = llm.generate(stage1_prompts, stage1_params, use_tqdm=show_progress)
+    stage1_texts = [o.outputs[0].text for o in stage1_outputs]
+
+    stage2_prompts: list[str] = []
+    n_recovered = 0
+    for i, (msgs_orig, msgs_rev) in enumerate(msgs_per_q):
+        p_o, rec_o = _render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i])
+        p_r, rec_r = _render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1])
+        stage2_prompts.append(p_o)
+        stage2_prompts.append(p_r)
+        n_recovered += int(rec_o) + int(rec_r)
+
+    stage2_params = SamplingParams(
         temperature=0.0,
         max_tokens=1,
         logprobs=5,
-        guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
+        guided_decoding=GuidedDecodingParams(choice=["X", "Y"]),
     )
 
     if show_progress:
-        print(f"Running vLLM batch over {len(prompts)} prompts "
-              f"({len(questions)} questions × 2 orderings)...")
+        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts "
+              f"({n_recovered} stage-1 outputs missing 'Answer:' — appended as recovery)...")
 
-    outputs = llm.generate(prompts, sampling_params, use_tqdm=show_progress)
+    stage2_outputs = llm.generate(stage2_prompts, stage2_params, use_tqdm=show_progress)
 
     results: list[dict] = []
     iterator = tqdm(questions, desc="Combining logprobs") if show_progress else questions
     for i, q in enumerate(iterator):
-        out_orig = outputs[2 * i].outputs[0]
-        out_rev = outputs[2 * i + 1].outputs[0]
+        out_orig = stage2_outputs[2 * i].outputs[0]
+        out_rev = stage2_outputs[2 * i + 1].outputs[0]
 
-        p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_1, token_id_2)
-        p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_1, token_id_2)
+        p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_x, token_id_y)
+        p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_x, token_id_y)
 
         combined = preference_from_logprobs(p1_o, p2_o, p1_r, p2_r)
 
@@ -289,6 +383,8 @@ def generate_historical_preferences(
             "response_1": q.get("response_1", ""),
             "response_2": q.get("response_2", ""),
             "question_id": q.get("question_id", ""),
+            "reasoning_original": stage1_texts[2 * i],
+            "reasoning_reversed": stage1_texts[2 * i + 1],
             **combined,
         })
 
@@ -485,6 +581,7 @@ def generate_century_prefs(
     questions: list[dict],
     model_size: str = "8B",
     tensor_parallel_size: int = 1,
+    gpu_memory_utilization: float = 0.9,
     show_progress: bool = True,
 ) -> list[dict]:
     """Load HistLlama once for *century* and generate preferences for all profiles.
@@ -514,35 +611,61 @@ def generate_century_prefs(
     print(f"\nLoading HistLlama {model_size} for {century_to_name(century)}...")
     llm, tokenizer = load_hist_llama(
         century=century, size=model_size, tensor_parallel_size=tensor_parallel_size,
+        gpu_memory_utilization=gpu_memory_utilization,
     )
 
-    token_id_1, token_id_2 = _resolve_choice_token_ids(tokenizer)
+    token_id_x, token_id_y = _resolve_choice_token_ids(tokenizer)
 
-    # Single batched call across (profiles × questions × 2 orderings) — vLLM's
-    # scheduler interleaves them so we pay one GPU launch overhead per century
-    # instead of one per profile.
-    prompts: list[str] = []
+    # Two-stage CoT flow: stage 1 generates reasoning unconstrained; stage 2
+    # commits to X / Y under guided decoding so the single-token logprobs stay
+    # calibrated for downstream soft-preference consumers.  Labels are
+    # deterministic (X = first option, Y = second) — pilot showed this beats
+    # randomized labels because the symmetric ordering-average cancels out
+    # any letter-specific prior in the soft-preference signal.
+    msgs_index: list[tuple[list[dict], list[dict]]] = []
+    stage1_prompts: list[str] = []
     for profile in profiles:
         for q in questions:
-            prompts.append(_build_comparison_prompt(
-                tokenizer, q["prompt"], q["response_1"], q["response_2"], profile,
-            ))
-            prompts.append(_build_comparison_prompt(
-                tokenizer, q["prompt"], q["response_2"], q["response_1"], profile,
-            ))
+            msgs_orig = _build_comparison_messages(
+                q["prompt"], q["response_1"], q["response_2"], profile,
+            )
+            msgs_rev = _build_comparison_messages(
+                q["prompt"], q["response_2"], q["response_1"], profile,
+            )
+            msgs_index.append((msgs_orig, msgs_rev))
+            stage1_prompts.append(_render_stage1_prompt(tokenizer, msgs_orig))
+            stage1_prompts.append(_render_stage1_prompt(tokenizer, msgs_rev))
 
-    sampling_params = SamplingParams(
+    stage1_params = SamplingParams(temperature=0.0, max_tokens=150)
+
+    if show_progress:
+        print(f"[stage 1] reasoning over {len(stage1_prompts)} prompts "
+              f"({len(profiles)} profiles × {len(questions)} questions × 2 orderings)...")
+
+    stage1_outputs = llm.generate(stage1_prompts, stage1_params, use_tqdm=show_progress)
+    stage1_texts = [o.outputs[0].text for o in stage1_outputs]
+
+    stage2_prompts: list[str] = []
+    n_recovered = 0
+    for i, (msgs_orig, msgs_rev) in enumerate(msgs_index):
+        p_o, rec_o = _render_stage2_prompt(tokenizer, msgs_orig, stage1_texts[2 * i])
+        p_r, rec_r = _render_stage2_prompt(tokenizer, msgs_rev, stage1_texts[2 * i + 1])
+        stage2_prompts.append(p_o)
+        stage2_prompts.append(p_r)
+        n_recovered += int(rec_o) + int(rec_r)
+
+    stage2_params = SamplingParams(
         temperature=0.0,
         max_tokens=1,
         logprobs=5,
-        guided_decoding=GuidedDecodingParams(choice=["1", "2"]),
+        guided_decoding=GuidedDecodingParams(choice=["X", "Y"]),
     )
 
     if show_progress:
-        print(f"Running vLLM batch over {len(prompts)} prompts "
-              f"({len(profiles)} profiles × {len(questions)} questions × 2 orderings)...")
+        print(f"[stage 2] committing to X/Y over {len(stage2_prompts)} prompts "
+              f"({n_recovered} stage-1 outputs missing 'Answer:' — appended as recovery)...")
 
-    outputs = llm.generate(prompts, sampling_params, use_tqdm=show_progress)
+    stage2_outputs = llm.generate(stage2_prompts, stage2_params, use_tqdm=show_progress)
 
     nq = len(questions)
     all_results: list[dict] = []
@@ -550,11 +673,11 @@ def generate_century_prefs(
         user_id = f"hist_{century}_{p_idx:02d}"
         for q_idx, q in enumerate(questions):
             base = 2 * (p_idx * nq + q_idx)
-            out_orig = outputs[base].outputs[0]
-            out_rev = outputs[base + 1].outputs[0]
+            out_orig = stage2_outputs[base].outputs[0]
+            out_rev = stage2_outputs[base + 1].outputs[0]
 
-            p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_1, token_id_2)
-            p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_1, token_id_2)
+            p1_o, p2_o = _probs_from_logprobs(out_orig.logprobs[0], token_id_x, token_id_y)
+            p1_r, p2_r = _probs_from_logprobs(out_rev.logprobs[0], token_id_x, token_id_y)
 
             combined = preference_from_logprobs(p1_o, p2_o, p1_r, p2_r)
 
@@ -567,6 +690,8 @@ def generate_century_prefs(
                 "century": century,
                 "profile_index": p_idx,
                 "user_profile": profile,
+                "reasoning_original": stage1_texts[base],
+                "reasoning_reversed": stage1_texts[base + 1],
                 **combined,
             })
 
@@ -642,6 +767,9 @@ def cmd_generate_synth(args) -> None:
     if args.questions is not None:
         curated_ids = load_curated_question_ids(args.questions)
         print(f"Using {len(curated_ids)} curated question IDs from {args.questions}")
+        if args.n_questions_cap is not None and args.n_questions_cap > 0:
+            curated_ids = curated_ids[: args.n_questions_cap]
+            print(f"Capped to first {len(curated_ids)} question IDs via --n-questions-cap")
 
     # Load PRISM questions once
     df = load_prism_pairwise()
@@ -673,10 +801,36 @@ def cmd_generate_synth(args) -> None:
             for _, row in selected_df.iterrows()
         ]
 
+        # Per-century resume: if both per-century outputs already exist on disk
+        # AND their {question_id} × {user_id} cover sets match what this run
+        # would generate, reuse them and skip the (very expensive) inference.
+        raw_path = output_dir / f"hist_prefs_{century}_raw.json"
+        jsonl_path = output_dir / f"hist_prefs_{century}.jsonl"
+        if raw_path.exists() and jsonl_path.exists():
+            try:
+                with open(raw_path) as f:
+                    existing = json.load(f)
+                existing_qids = {r.get("question_id") for r in existing}
+                wanted_qids = {q["question_id"] for q in questions}
+                existing_users = {r.get("user_id") for r in existing}
+                wanted_users = {f"hist_{century}_{i:02d}" for i in range(len(profiles))}
+                if existing_qids == wanted_qids and existing_users == wanted_users:
+                    records = results_to_jsonl_records(existing)
+                    print(f"[resume] {century} already complete on disk "
+                          f"({len(existing)} raw records, {len(records)} valid prefs); skipping inference.")
+                    all_records.extend(records)
+                    continue
+                print(f"[resume] {century} outputs exist but do not match current "
+                      f"questions/profiles (qids match: {existing_qids == wanted_qids}, "
+                      f"users match: {existing_users == wanted_users}); regenerating.")
+            except (json.JSONDecodeError, KeyError, OSError) as e:
+                print(f"[resume] {century} existing raw output unreadable ({e}); regenerating.")
+
         results = generate_century_prefs(
             century, profiles, questions,
             model_size=args.model_size,
             tensor_parallel_size=args.tensor_parallel_size,
+            gpu_memory_utilization=args.gpu_memory_utilization,
             show_progress=True,
         )
 
@@ -726,10 +880,14 @@ def main() -> None:
     synth_parser.add_argument("--model-size", type=str, default="8B", choices=["8B", "70B"])
     synth_parser.add_argument("--tensor-parallel-size", type=int, default=1,
                               help="Number of GPUs to shard the model across (raise for 70B)")
+    synth_parser.add_argument("--gpu-memory-utilization", type=float, default=0.9,
+                              help="Fraction of each GPU's memory vLLM may claim (lower if peers share the GPU)")
     synth_parser.add_argument("--profiles", type=str, default=None,
                               help="Path to profiles JSONL (default: bundled profiles.jsonl)")
     synth_parser.add_argument("--questions", type=str, default=None,
                               help="Path to curated question IDs file (default: bundled curated_questions.txt)")
+    synth_parser.add_argument("--n-questions-cap", type=int, default=None,
+                              help="If set, only use the first N curated question IDs (preserves order in the file).")
     synth_parser.add_argument("--output-dir", type=str, default=None, help="Output directory")
     synth_parser.add_argument("--seed", type=int, default=42, help="Random seed")
 

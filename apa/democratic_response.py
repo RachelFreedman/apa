@@ -37,12 +37,7 @@ from apa.config import (
     configure_environment,
 )
 from apa.levers.slate_generation import temperature_sampling
-from apa.levers.voter_aggregation import (
-    borda_count,
-    copeland,
-    instant_runoff,
-    plurality,
-)
+from apa.levers.voter_aggregation import AGGREGATION_METHODS
 from apa.levers.voter_sampling import (
     random_sampling,
     stratified_sampling,
@@ -50,14 +45,6 @@ from apa.levers.voter_sampling import (
     weighted_sampling,
 )
 from apa.lore_adapt import LoReScorer
-
-
-AGGREGATION_METHODS: dict[str, Callable[[dict, dict], list[int]]] = {
-    "borda_count": borda_count,
-    "plurality": plurality,
-    "copeland": copeland,
-    "instant_runoff": instant_runoff,
-}
 
 SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
     "random": random_sampling,
@@ -271,6 +258,40 @@ def _normalize_source_label(label: str) -> str:
     if m:
         return f"{int(m.group(1))}C"
     return s
+
+
+def parse_jury_source_spec(spec: str) -> tuple[str, int | None]:
+    """
+    Parse one ``--jury_sources`` token into (normalised_label, count).
+
+    Accepted forms:
+      - ``"C16"``       → ("16C", None)        # use all available
+      - ``"prism:10"``  → ("original", 10)     # sample 10
+      - ``"prism=10"``  → ("original", 10)     # `=` accepted as alias for `:`
+      - ``"C16:all"``   → ("16C", None)        # explicit "all"
+
+    Count of None means "include every available voter for this group".
+    """
+    raw = spec.strip()
+    if not raw:
+        raise ValueError("Empty jury source spec")
+    for sep in (":", "="):
+        if sep in raw:
+            label, count_str = raw.split(sep, 1)
+            label = label.strip()
+            count_str = count_str.strip().lower()
+            if count_str in {"", "all", "*"}:
+                return _normalize_source_label(label), None
+            try:
+                n = int(count_str)
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid jury source count in '{spec}': '{count_str}'"
+                ) from e
+            if n < 0:
+                raise ValueError(f"Jury source count must be >= 0, got {n} in '{spec}'")
+            return _normalize_source_label(label), n
+    return _normalize_source_label(raw), None
 
 
 def _period_for_user(user_id: str, origin: str) -> str:
@@ -490,11 +511,22 @@ class DemocraticInference:
         self.sampling_config = (
             dict(sampling_config) if sampling_config is not None else {"stratify_by": "origin"}
         )
-        # When jury_sources is set, we'll override sampling to stratify by period
-        # on a filtered candidate pool (computed at call time).
-        self.jury_sources: list[str] | None = (
-            [_normalize_source_label(s) for s in jury_sources] if jury_sources else None
-        )
+        # When jury_sources is set, we'll override sampling to draw from a
+        # period-filtered candidate pool. Each entry is (label, count|None);
+        # count=None means "include all available voters in this group", in
+        # which case the legacy stratified split (m_voters // n_groups) is
+        # used. When any count is explicit, per-group sampling kicks in and
+        # m_voters is ignored.
+        self.jury_sources: list[tuple[str, int | None]] | None = None
+        if jury_sources:
+            parsed: list[tuple[str, int | None]] = []
+            for s in jury_sources:
+                if isinstance(s, tuple):
+                    label, count = s
+                    parsed.append((_normalize_source_label(label), count))
+                else:
+                    parsed.append(parse_jury_source_spec(s))
+            self.jury_sources = parsed
         self.seed = seed
         self.model = model
         self.tokenizer = tokenizer
@@ -547,12 +579,11 @@ class DemocraticInference:
             raise RuntimeError("Jury is empty — no users loaded into the scorer.")
 
         if self.jury_sources:
-            # Restrict candidates to users whose period matches one of the
-            # requested groups, then stratified-sample evenly across groups.
-            requested = list(self.jury_sources)
+            requested = [label for label, _ in self.jury_sources]
+            counts = {label: count for label, count in self.jury_sources}
             pool = [
                 uid for uid in all_user_ids
-                if self.user_metadata.get(uid, {}).get("period") in requested
+                if self.user_metadata.get(uid, {}).get("period") in counts
             ]
             by_group: dict[str, list[str]] = {g: [] for g in requested}
             for uid in pool:
@@ -564,17 +595,48 @@ class DemocraticInference:
                     f"Available periods: "
                     f"{sorted({m.get('period') for m in self.user_metadata.values()})}"
                 )
-            sampling_strategy = "stratified"
-            sample_fn = SAMPLING_METHODS[sampling_strategy]
-            # Seeding is handled globally via random.seed() at the top of
-            # __call__; sampler functions don't read a 'seed' config key.
-            sample_config = {"stratify_by": "period"}
-            m = min(self.m_voters, len(pool))
-            _log(
-                f"Sampling {m} voters from {len(pool)} (filtered to "
-                f"{requested}) via stratified-by-period..."
-            )
-            sampled_user_ids = sample_fn(pool, self.user_metadata, m, sample_config)
+
+            explicit_counts = any(c is not None for c in counts.values())
+            if explicit_counts:
+                # Per-group sampling: bare label = all available; label:N = N.
+                sampled_user_ids = []
+                for label in requested:
+                    members = by_group[label]
+                    requested_n = counts[label]
+                    if requested_n is None:
+                        sampled_user_ids.extend(members)
+                    else:
+                        if requested_n > len(members):
+                            raise ValueError(
+                                f"Requested {requested_n} voters from '{label}' "
+                                f"but only {len(members)} are available."
+                            )
+                        # Determinism comes from the global random.seed() call
+                        # at the top of __call__; do not pass a per-call seed
+                        # here or it will desync from per_voter_rankings.
+                        sampled_user_ids.extend(random.sample(members, requested_n))
+                sampling_strategy = "per_group"
+                sample_config = {
+                    "per_group_counts": {
+                        label: (counts[label] if counts[label] is not None else len(by_group[label]))
+                        for label in requested
+                    },
+                }
+                _log(
+                    f"Sampling {len(sampled_user_ids)} voters from {len(pool)} "
+                    f"(filtered to {requested}) via per-group selection: "
+                    f"{sample_config['per_group_counts']}"
+                )
+            else:
+                sampling_strategy = "stratified"
+                sample_fn = SAMPLING_METHODS[sampling_strategy]
+                sample_config = {"stratify_by": "period"}
+                m = min(self.m_voters, len(pool))
+                _log(
+                    f"Sampling {m} voters from {len(pool)} (filtered to "
+                    f"{requested}) via stratified-by-period..."
+                )
+                sampled_user_ids = sample_fn(pool, self.user_metadata, m, sample_config)
         else:
             m = min(self.m_voters, len(all_user_ids))
             sample_fn = SAMPLING_METHODS[self.sampling]
@@ -645,7 +707,16 @@ class DemocraticInference:
                 "methods": list(self.methods),
                 "sampling": sampling_strategy,
                 "sampling_config": dict(sample_config),
-                "jury_sources": list(self.jury_sources) if self.jury_sources else None,
+                # Always serialised as a list of {label, count} dicts (or
+                # None when no jury_sources were set). count=None means
+                # "include every available voter in that group".
+                "jury_sources": (
+                    [
+                        {"label": label, "count": count}
+                        for label, count in self.jury_sources
+                    ]
+                    if self.jury_sources else None
+                ),
                 "seed": self.seed,
                 # The inference LLM only matters when WE generated responses.
                 # If responses were supplied (e.g. from a file), log None.

@@ -106,3 +106,11 @@ def instant_runoff(rankings: dict[str, list[int]], config: dict) -> list[int]:
         result.append(remaining[0])
 
     return result
+
+
+AGGREGATION_METHODS: dict[str, Any] = {
+    "borda_count": borda_count,
+    "plurality": plurality,
+    "copeland": copeland,
+    "instant_runoff": instant_runoff,
+}

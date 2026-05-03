@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Literal
 import os
-import yaml
 
 
 # =============================================================================
@@ -90,34 +89,6 @@ class DatasetConfig:
 # =============================================================================
 
 @dataclass
-class HistLlamaConfig:
-    """Configuration for ProgressGym historical models."""
-
-    size: str = "8B"  # "8B" or "70B"
-    century: str = "C013"  # C013-C021
-
-    VALID_SIZES: ClassVar[tuple[str, ...]] = ("8B", "70B")
-    VALID_CENTURIES: ClassVar[tuple[str, ...]] = (
-        "C013", "C014", "C015", "C016", "C017",
-        "C018", "C019", "C020", "C021"
-    )
-
-    # Generation parameters
-    max_new_tokens: int = 20
-    temperature: float = 0.9
-    do_sample: bool = True
-
-    # HuggingFace model naming
-    hf_org: str = "PKU-Alignment"
-    default_version: str = "v0.2"
-
-    @property
-    def model_name(self) -> str:
-        """Full HuggingFace model path."""
-        return f"{self.hf_org}/ProgressGym-HistLlama3-{self.size}-{self.century}-instruct-{self.default_version}"
-
-
-@dataclass
 class InferenceLLMConfig:
     """Configuration for the base LLM used in inference."""
 
@@ -181,11 +152,8 @@ class InferenceConfig:
     k_responses: int = 5  # Number of alternative responses to generate
     m_voters: int = 10  # Number of user models to sample
 
-    # Lever defaults
-    generate_strategy: str = "temperature_sampling"
-    sample_strategy: str = "random"
+    # Default aggregation method (read by apa.democratic_response CLI default)
     aggregate_strategy: str = "borda_count"
-    question_strategy: str = "random_subset"
 
 
 # =============================================================================
@@ -197,7 +165,6 @@ class APAConfig:
     """Main configuration container for APA project."""
 
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
-    hist_llama: HistLlamaConfig = field(default_factory=HistLlamaConfig)
     inference_llm: InferenceLLMConfig = field(default_factory=InferenceLLMConfig)
     lore: LoReConfig = field(default_factory=LoReConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
@@ -206,48 +173,6 @@ class APAConfig:
     historical_centuries: list[str] = field(
         default_factory=lambda: ["C013", "C017", "C019", "C021"]
     )
-
-    @classmethod
-    def from_yaml(cls, path: Path | str) -> "APAConfig":
-        """Load configuration from YAML file."""
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-
-        # Build nested configs
-        config = cls()
-        if 'dataset' in data:
-            config.dataset = DatasetConfig(**data['dataset'])
-        if 'hist_llama' in data:
-            config.hist_llama = HistLlamaConfig(**data['hist_llama'])
-        if 'inference_llm' in data:
-            config.inference_llm = InferenceLLMConfig(**data['inference_llm'])
-        if 'lore' in data:
-            config.lore = LoReConfig(**data['lore'])
-        if 'inference' in data:
-            config.inference = InferenceConfig(**data['inference'])
-        if 'historical_centuries' in data:
-            config.historical_centuries = data['historical_centuries']
-
-        return config
-
-    def to_yaml(self, path: Path | str) -> None:
-        """Save configuration to YAML file."""
-        import dataclasses
-
-        def to_dict(obj):
-            if dataclasses.is_dataclass(obj):
-                return {k: to_dict(v) for k, v in dataclasses.asdict(obj).items()
-                        if not k.startswith('VALID_')}
-            elif isinstance(obj, (list, tuple)):
-                return [to_dict(v) for v in obj]
-            elif isinstance(obj, Path):
-                return str(obj)
-            return obj
-
-        data = to_dict(self)
-        with open(path, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False)
-
 
 # =============================================================================
 # Global instances

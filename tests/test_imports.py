@@ -15,7 +15,6 @@ def test_config():
     from apa.config import (
         APAConfig,
         DatasetConfig,
-        HistLlamaConfig,
         LoReConfig,
         InferenceConfig,
         configure_environment,

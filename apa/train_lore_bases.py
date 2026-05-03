@@ -587,7 +587,8 @@ def main() -> None:
     parser.add_argument("--embeddings_dir", type=str, default=None, help="Embeddings directory")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save_plot", action="store_true", default=True, help="Save accuracy plot")
+    parser.add_argument("--save_plot", action=argparse.BooleanOptionalAction, default=True,
+                        help="Save accuracy plot (use --no-save_plot to disable)")
     parser.add_argument("--embedding_model", type=str, default="Skywork/Skywork-Reward-Llama-3.1-8B-v0.2")
     args = parser.parse_args()
 

@@ -44,6 +44,7 @@ from apa.levers.voter_sampling import (
     temporal_mix_sampling,
     weighted_sampling,
 )
+from apa._logging import log as _log
 from apa.lore_adapt import LoReScorer
 
 SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
@@ -52,11 +53,6 @@ SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
     "weighted": weighted_sampling,
     "temporal_mix": temporal_mix_sampling,
 }
-
-
-def _log(msg: str) -> None:
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {msg}", flush=True)
 
 
 # =============================================================================

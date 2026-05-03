@@ -24,6 +24,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from apa._logging import log
+
 
 # =============================================================================
 # Adaptation Functions
@@ -392,10 +394,6 @@ def main() -> None:
     args = parser.parse_args()
 
     configure_environment()
-
-    def log(message: str) -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
 
     script_start = time.time()
     log("=" * 60)

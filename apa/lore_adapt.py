@@ -380,7 +380,7 @@ def main() -> None:
     )
     parser.add_argument("prefs_path", type=Path, help="Path to JSONL preferences file")
     parser.add_argument("--K", type=int, default=8, help="LoRe rank (must match a V_K*.pt checkpoint)")
-    parser.add_argument("--V", "--basis", type=Path, default=None, dest="basis_path",
+    parser.add_argument("--basis", type=Path, default=None, dest="basis_path",
                         help="Path to V basis checkpoint. Default: MODELS_DIR/V_K{K}.pt")
     parser.add_argument("--num_iterations", type=int, default=500, help="Few-shot iterations")
     parser.add_argument("--learning_rate", type=float, default=0.5, help="Few-shot learning rate")

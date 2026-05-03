@@ -422,16 +422,8 @@ class TestJurySourcesSelection:
             _add(f"hist_C013_{i:02d}", "13C", "adapted")
         return scorer, meta
 
-    def test_normalize_source_label(self):
-        from apa.democratic_response import _normalize_source_label
-        assert _normalize_source_label("prism") == "original"
-        assert _normalize_source_label("original") == "original"
-        assert _normalize_source_label("C21") == "21C"
-        assert _normalize_source_label("c21") == "21C"
-        assert _normalize_source_label("C017") == "17C"
-        assert _normalize_source_label("21C") == "21C"
-        assert _normalize_source_label("13c") == "13C"
-        assert _normalize_source_label("weird") == "weird"
+    # Note: _normalize_source_label / parse_jury_source_spec are unit-tested
+    # in tests/test_levers.py alongside the rest of the lever surface.
 
     def test_filters_and_balances(self, monkeypatch):
         _patch_embedding(monkeypatch, D=16)

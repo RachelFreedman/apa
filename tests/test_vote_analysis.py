@@ -8,10 +8,8 @@ import math
 import pytest
 import torch
 
-from apa.democratic_response import (
-    DemocraticInference,
-    parse_jury_source_spec,
-)
+from apa.democratic_response import DemocraticInference
+from apa.levers.voter_sampling import parse_jury_source_spec
 from apa.lore_adapt import LoReScorer
 from apa.vote_analysis import (
     analyze_audit_log,

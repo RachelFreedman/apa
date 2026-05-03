@@ -38,56 +38,104 @@ suitability pipelines; run them as a final verification with
 
 ## Reproducing the paper
 
-The paper experiment lives under `experiments/` and runs the C016 (16th
-century) + C020 (20th century) jury composition on a curated, deliberately
-time-varying subset of PRISM. All intermediate artifacts are tracked in
-the repo so each step can be skipped if its inputs are unchanged.
+The paper experiment runs a fixed C016 (16th century) + C020 (20th
+century) jury over a curated, deliberately time-varying subset of PRISM.
+There are two reproduction paths:
 
-**Prerequisites**
+- **A — exact reproduction of the paper's votes** (recommended for
+  reviewers). Uses the LoRe basis, PRISM weights, and per-user
+  C016/C020 weights that produced the paper, all tracked in
+  `experiments/checkpoints/`. Skips PRISM data prep, V/W training, and
+  70B HistLlama generation — just runs the vote.
+- **B — full pipeline from scratch**. Retrains everything, including the
+  LoRe basis on PRISM and the synthetic preferences via 70B HistLlama.
+  Produces *comparable* but **not** byte-identical votes (see "Why B
+  diverges" below).
 
-- PRISM access at `/nas/ucb/rachel/historical-prefs/data/prism/` (already
-  populated on the lab cluster).
-- Write access to `/nas/ucb/rachel/APA/` (paths in `apa/config.py`).
-- ≥4× A100 (80GB) for step 2 (70B HistLlama via vLLM); 1× A100 for steps
-  1 and 3–6.
+Both paths share the same input slate (`experiments/query_responses*.jsonl`),
+seed (`42`), and aggregation methods. Path A always yields byte-identical
+rankings to the tracked `experiments/vote_C016_C020{,_simple}/audit_log.json`.
 
-### Step 1 — Train the LoRe basis on PRISM
+### A. Exact-reproduction path
+
+**Prerequisites**: one CUDA GPU with ≥16 GB free for the Skywork-Reward
+embedding of the candidate response slates. No NAS, PRISM, or 70B model
+required. Total wall time: a couple of minutes.
+
+```bash
+bash experiments/scripts/reproduce_paper_votes.sh
+```
+
+That wrapper runs both votes — `run_vote_C016_C020.sh` (regular slate)
+and `run_vote_C016_C020_simple.sh` (yes/no slate) — against the
+repo-tracked checkpoints:
+
+```
+experiments/checkpoints/V_K8.pt                            # LoRe basis (4096 × 8)
+experiments/checkpoints/W_seen_K8.pt                       # PRISM jury voters (182 × 8)
+experiments/checkpoints/W_adapted_hist_C016_C020_filtered.pt  # 20 historical voters
+```
+
+Each script writes `audit_log.json`, `vote_results.json` (regular slate
+only), `vote_analysis.json`, and `vote_report.txt` under
+`experiments/vote_C016_C020{,_simple}/`. The new `audit_log.json`'s
+`sampled_user_ids`, `per_voter_rankings`, `aggregations`, and
+`average_ranks` will match the tracked versions byte-for-byte; only the
+`jury_manifest.path`, `embeddings_hash`, and timestamps differ.
+
+You can rebuild the W_adapted checkpoint yourself before voting if you
+want to verify that step too:
+
+```bash
+# Refits W_adapted_hist_C016_C020_filtered.pt against the tracked V and the
+# tracked filtered prefs. Cosine similarity to the shipped W is 1.0 across
+# all 20 users; vote rankings remain byte-identical.
+bash experiments/scripts/train_user_weights_C016_C020.sh
+bash experiments/scripts/reproduce_paper_votes.sh
+```
+
+### B. Full pipeline from scratch
+
+**Prerequisites**:
+- PRISM raw data (downloaded automatically by `apa.load_prism` from
+  HuggingFace; written under `$NAS_BASE/data/prism/`).
+- Write access to `$NAS_BASE` (`/nas/ucb/rachel/APA` by default; see
+  `apa/config.py`).
+- 1× A100/A6000 (≥40 GB) for steps 1 and 3–6.
+- 4× A100/A6000 (each ≥35 GB free) for step 2 (70B HistLlama via vLLM
+  with `tensor_parallel_size=4`).
+
+#### Step 1 — Train the LoRe basis on PRISM
 
 ```bash
 uv run python -m apa.load_prism --split both
 uv run python -m apa.train_lore_bases --K_list 0,1,8
 ```
 
-Writes `V_K{0,1,8}.pt`, `W_seen_K8.pt`, and `user_to_idx.json` under
-`/nas/ucb/rachel/APA/models/`. `V_K8.pt` is the basis the rest of the
-pipeline reuses.
+Writes `V_K{0,1,8}.pt` and `W_seen_K{0,1,8}.pt` under `$NAS_BASE/models/`.
+`V_K8.pt` is the basis the rest of the pipeline reuses.
 
-### Step 2 — Generate synthetic preferences for C016 and C020
+#### Step 2 — Generate synthetic preferences for C016 and C020
 
 ```bash
 bash experiments/scripts/generate_prefs_C016_C020.sh
 ```
 
 Reads:
-- `experiments/chosen_questions.jsonl` (500 PRISM questions where moral
-  consensus is expected to vary across centuries; produced by
-  `scripts/select_time_varying_questions.py`),
-- `experiments/profiles_C016_C020.jsonl` (the 20 paper personas: 10 from
-  C016 + 10 from C020).
+- `experiments/chosen_questions.jsonl` — 500 PRISM questions where moral
+  consensus is expected to vary across centuries (produced by
+  `scripts/select_time_varying_questions.py`).
+- `experiments/profiles_C016_C020.jsonl` — the 20 paper personas (10
+  from C016 + 10 from C020).
 
-Writes per-century outputs under
-`experiments/synthetic_prefs_C016_C020/`:
-`hist_prefs_C{016,020}.jsonl` (eval_prefs format) and
-`hist_prefs_C{016,020}_raw.json` (full reasoning + logprobs).
+Writes `hist_prefs_C{016,020}.jsonl` (eval_prefs format) and
+`hist_prefs_C{016,020}_raw.json` (full reasoning + logprobs) under
+`experiments/synthetic_prefs_C016_C020/`. Each preference pair is judged
+via a two-stage CoT chat-template flow (stage 1 reasoning, stage 2
+guided-decode commit to `{"X","Y"}`); both orderings are averaged to
+cancel the model's letter-prior.
 
-Each preference pair is judged via a two-stage CoT chat-template flow:
-stage 1 asks the persona (in the system role) to reason briefly about
-"Response X" vs "Response Y"; stage 2 commits to a guided-decoded token
-from `{"X","Y"}` so the calibrated soft-preference logprobs land on the
-first emitted token. Both orderings of the pair are run and averaged to
-cancel the model's residual letter-prior.
-
-### Step 3 — Filter the synthetic preferences
+#### Step 3 — Filter the synthetic preferences
 
 ```bash
 uv run python -m experiments.filter_output filter \
@@ -97,50 +145,53 @@ uv run python -m experiments.filter_output filter \
     --min-records-per-user 5
 ```
 
-Three-stage filter: drop pair with `consistency != 1.0`; drop questions
-where every persona picked the same side; drop personas left with too few
-records to fit a per-user W vector.
-
-### Step 4 — Few-shot LoRe adaptation: fit per-user W vectors
+#### Step 4 — Few-shot LoRe adaptation: fit per-user W vectors
 
 ```bash
 bash experiments/scripts/train_user_weights_C016_C020.sh
 ```
 
-Loads the filtered preferences, embeds them with Skywork-Reward, and runs
-500 iterations of gradient descent against the frozen `V_K8.pt` basis from
-step 1. Writes `W_adapted_hist_C016_C020_filtered.pt` to
-`/nas/ucb/rachel/APA/models/`.
+Defaults to fitting against `experiments/checkpoints/V_K8.pt`. Override
+with `V_CHECKPOINT=$NAS_BASE/models/V_K8.pt bash …` to use the V you
+just trained in step 1.
 
-### Step 5 — Hold the democratic vote
+#### Step 5 — Hold the democratic vote
 
 ```bash
 bash experiments/scripts/run_vote_C016_C020.sh
 bash experiments/scripts/run_vote_C016_C020_simple.sh
 ```
 
-Both scripts call `apa.democratic_response` over a fixed query/response
-slate (`experiments/query_responses{,_simple}.jsonl`) with
-`--jury_sources "C16,C20,prism:10"` (all 10 C016 + all 10 C020 +
-10 randomly sampled PRISM voters; seed 42). Then call `apa.vote_analysis`
-to compute per-group aggregations and intra/inter-group rank agreement.
+Each script defaults to the repo-tracked checkpoints; override with the
+`V_CHECKPOINT` / `PRISM_USERS` / `ADAPTED` env vars to use freshly
+trained ones.
 
-Outputs land in `experiments/vote_C016_C020/` and
-`experiments/vote_C016_C020_simple/`: `audit_log.json` (raw per-voter
-rankings + jury manifest), `vote_results.json` (aggregated rankings per
-method), `vote_analysis.json` (group/agreement metrics), and
-`vote_report.txt` (human-readable summary).
-
-### Step 6 — Render figures
+#### Step 6 — Render figures
 
 ```bash
 uv run python -m experiments.figs all
 ```
 
-Reads the audit logs from step 5 and the W checkpoints from step 4 and
-writes `experiments/figs/{user_weights_grid,jury_agreement_heatmap}.{png,pdf}`.
-Individual figures available via `... figs user_weights_grid`,
-`... figs jury_agreement_heatmap`.
+Writes `experiments/figs/{user_weights_grid,jury_agreement_heatmap}.{png,pdf}`.
+
+#### Why B diverges from the paper
+
+Path B regenerates the LoRe basis, which means the PRISM jury pool
+changes too. The original paper's `V_K8.pt` was trained against an
+upstream LoRe-supplied PRISM split with **182 seen users**; the current
+`apa/load_prism.py` derives the seen/unseen split locally from the raw
+PRISM conversations (`min_dialogs > 5`, `seen_ratio = 0.8`) and yields
+**1030 seen users**. With the same seed but a 5.6× larger pool,
+`random.sample(prism_pool, 10)` lands on different voters, so the
+audit logs in path B will diverge from the in-repo ones — even though
+the methodology is unchanged. The 70B preference generation itself is
+near-deterministic on the chosen questions (verified: 100% match on
+`chosen` text in our reruns), and the filter output is byte-identical
+given the same input.
+
+If you want path B to land *closer* to the paper, you can shrink the
+seen pool by setting a higher `min_dialogs` threshold in
+`apa/load_prism.py:split_users` before retraining V.
 
 ## Library pipeline (generic)
 

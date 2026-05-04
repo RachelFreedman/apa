@@ -1,7 +1,6 @@
 """
 Centralized configuration for APA (Aggregated Preference Alignment) project.
 
-This module provides path configuration, model parameters, and inference settings.
 Paths are configured to use NAS storage for large files.
 """
 
@@ -35,7 +34,6 @@ HISTORICAL_PREFS_DATA = Path("/nas/ucb/rachel/historical-prefs/data")
 # =============================================================================
 
 def configure_environment() -> None:
-    """Configure environment variables for HuggingFace and temp directories."""
     os.environ['HF_HOME'] = str(HF_CACHE_DIR)
     os.environ['TRANSFORMERS_CACHE'] = str(HF_CACHE_DIR)
     os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(HF_CACHE_DIR / "sentence_transformers")
@@ -60,26 +58,21 @@ DatasetName = Literal["prism"]
 
 @dataclass
 class DatasetConfig:
-    """Configuration for PRISM dataset."""
     name: DatasetName = "prism"
 
     @property
     def questions_pairwise_path(self) -> Path:
-        """Path to pairwise questions CSV."""
         return HISTORICAL_PREFS_DATA / "prism" / "questions_pairwise.csv"
 
     @property
     def embeddings_dir(self) -> Path:
-        """Directory for precomputed embeddings."""
         return EMBEDDINGS_DIR
 
     @property
     def models_dir(self) -> Path:
-        """Directory for model checkpoints."""
         return MODELS_DIR
 
     def ensure_dirs(self) -> None:
-        """Create all necessary directories."""
         EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -90,7 +83,6 @@ class DatasetConfig:
 
 @dataclass
 class InferenceLLMConfig:
-    """Configuration for the base LLM used in inference."""
 
     # Using Qwen2.5 as it's ungated (no HF auth required)
     # Alternatives: "mistralai/Mistral-7B-Instruct-v0.3", "google/gemma-2-9b-it"
@@ -106,20 +98,6 @@ class InferenceLLMConfig:
 
 @dataclass
 class LoReConfig:
-    """
-    Configuration for Low-rank Reward modeling.
-
-    CRITICAL: These hyperparameters match the original LoRe paper exactly.
-    Changing them may result in performance mismatch with published results.
-
-    Performance targets (from LoRe paper):
-    | Rank | Train Acc | Seen/Unseen | Few-Shot | Unseen/Unseen |
-    |------|-----------|-------------|----------|---------------|
-    | 0    | 71.56%    | 71.56%      | 73.55%   | 71.20%        |
-    | 1    | 76.18%    | 76.59%      | 76.90%   | 76.06%        |
-    | 5    | 87.90%    | 87.75%      | 88.30%   | 87.92%        |
-    | 10   | 90.05%    | 89.76%      | 91.57%   | 91.25%        |
-    """
 
     # Training hyperparameters (MUST match LoRe paper)
     K_list: list[int] = field(default_factory=lambda: [0, 1])  # Start with tested ranks
@@ -147,7 +125,6 @@ class LoReConfig:
 
 @dataclass
 class InferenceConfig:
-    """Configuration for democratic inference."""
 
     k_responses: int = 5  # Number of alternative responses to generate
     m_voters: int = 10  # Number of user models to sample
@@ -162,8 +139,6 @@ class InferenceConfig:
 
 @dataclass
 class APAConfig:
-    """Main configuration container for APA project."""
-
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     inference_llm: InferenceLLMConfig = field(default_factory=InferenceLLMConfig)
     lore: LoReConfig = field(default_factory=LoReConfig)
@@ -179,5 +154,4 @@ class APAConfig:
 # =============================================================================
 
 def get_config() -> APAConfig:
-    """Get default configuration."""
     return APAConfig()

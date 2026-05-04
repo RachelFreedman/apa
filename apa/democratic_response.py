@@ -1,12 +1,6 @@
 """
 Democratic inference pipeline.
 
-Inference-time orchestrator that ties together:
-- A jury of user reward models (W vectors) scored through LoReScorer.
-- Diverse response generation from a base LLM (or loaded from a file).
-- One or more aggregation methods for voting over per-voter rankings.
-- A detailed audit log so every vote can be reconstructed later.
-
 CLI:
     python -m apa.democratic_response --query "What is AI?"
     python -m apa.democratic_response --query "..." --methods borda_count,copeland
@@ -270,10 +264,6 @@ def build_default_jury(
       - Adapted users: W_adapted_hist_top3_K{K}_K{K}.pt by default
         (the curated 27-user "top-3 per century" adaptation); callers
         may override with a specific path or list of paths.
-
-    Note: legacy per-century historical W_C*.pt files are intentionally not
-    loaded — they are artifacts of earlier training code and have been
-    superseded by the adapted-user pipeline.
 
     Per-voter metadata carries:
       - 'period': 'original' for PRISM, 'NC' for adapted (e.g. '13C').
@@ -610,8 +600,6 @@ class DemocraticInference:
                     if self.jury_sources else None
                 ),
                 "seed": self.seed,
-                # The inference LLM only matters when WE generated responses.
-                # If responses were supplied (e.g. from a file), log None.
                 "inference_llm": (
                     InferenceLLMConfig().model_name if generated_by_llm else None
                 ),

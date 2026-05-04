@@ -349,14 +349,6 @@ def prepare_prism_data(
     """
     Prepare PRISM parquet files with proper train/test splits.
 
-    This replicates the exact logic from LoRe/PRISM/prepare.py:
-    1. Download raw JSONL from HuggingFace
-    2. Parse into structured user and dialog data
-    3. Split users 80/20 (seen/unseen) with seed=123
-    4. Filter to users with >5 dialogs
-    5. Split each user's dialogs 50/50 into train/test
-    6. Save as parquet files
-
     Args:
         output_dir: Directory for output files (default: NAS prism data dir)
         raw_data_dir: Directory for raw JSONL files (optional)
@@ -623,8 +615,6 @@ def group_embeddings_by_user(
 ) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor], list[torch.Tensor]]:
     """
     Group embeddings by user and compute difference (chosen - rejected).
-
-    This follows the exact logic from LoRe/train_basis.py.
 
     Returns:
         (train_seen, train_unseen, test_seen, test_unseen) - lists of per-user tensors

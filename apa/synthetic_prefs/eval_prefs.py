@@ -928,7 +928,7 @@ def main():
              "(list of [n_prefs, D] tensors). Skips the embedding model entirely.",
     )
     parser.add_argument(
-        "--V", "--basis",
+        "--basis",
         type=Path,
         default=None,
         dest="basis_path",

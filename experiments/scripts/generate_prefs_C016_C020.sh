@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXP_DIR="$REPO_ROOT/experiments"
 OUT_DIR="$EXP_DIR/synthetic_prefs_C016_C020"
-PROFILES="$EXP_DIR/profiles.jsonl"
+PROFILES="$EXP_DIR/profiles_C016_C020.jsonl"
 QUESTIONS_JSONL="$EXP_DIR/chosen_questions.jsonl"
 QUESTIONS_IDS="$OUT_DIR/chosen_question_ids.txt"
 

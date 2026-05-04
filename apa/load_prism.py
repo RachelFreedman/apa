@@ -25,7 +25,6 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +32,9 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+
+from apa._logging import log
+from apa._logging import log as _log
 
 
 # =============================================================================
@@ -76,16 +78,6 @@ class DialogInfo:
     dialog_id: str
     user_id: str
     turns: list[Turn] = field(default_factory=list)
-
-
-# =============================================================================
-# Logging Utility
-# =============================================================================
-
-def _log(message: str) -> None:
-    """Log a timestamped message."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}", flush=True)
 
 
 # =============================================================================
@@ -357,14 +349,6 @@ def prepare_prism_data(
     """
     Prepare PRISM parquet files with proper train/test splits.
 
-    This replicates the exact logic from LoRe/PRISM/prepare.py:
-    1. Download raw JSONL from HuggingFace
-    2. Parse into structured user and dialog data
-    3. Split users 80/20 (seen/unseen) with seed=123
-    4. Filter to users with >5 dialogs
-    5. Split each user's dialogs 50/50 into train/test
-    6. Save as parquet files
-
     Args:
         output_dir: Directory for output files (default: NAS prism data dir)
         raw_data_dir: Directory for raw JSONL files (optional)
@@ -632,15 +616,9 @@ def group_embeddings_by_user(
     """
     Group embeddings by user and compute difference (chosen - rejected).
 
-    This follows the exact logic from LoRe/train_basis.py.
-
     Returns:
         (train_seen, train_unseen, test_seen, test_unseen) - lists of per-user tensors
     """
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
-
     def process_dataset(dataset, seen_value, split_name):
         split_label = "seen" if seen_value else "unseen"
         log(f"Processing {split_name} {split_label} dataset ({len(dataset)} examples)...")

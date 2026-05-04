@@ -35,6 +35,12 @@ ENV/
 embeddings/
 checkpoints/
 
+# Exception: paper-reproduction checkpoints are tracked in-repo (~150 KB total).
+# These are exactly the artifacts the original paper run produced; they let
+# reviewers reproduce the votes byte-for-byte without having to retrain V.
+!experiments/checkpoints/
+!experiments/checkpoints/*.pt
+
 # HuggingFace cache
 hf_cache/
 

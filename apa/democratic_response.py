@@ -1,12 +1,6 @@
 """
 Democratic inference pipeline.
 
-Inference-time orchestrator that ties together:
-- A jury of user reward models (W vectors) scored through LoReScorer.
-- Diverse response generation from a base LLM (or loaded from a file).
-- One or more aggregation methods for voting over per-voter rankings.
-- A detailed audit log so every vote can be reconstructed later.
-
 CLI:
     python -m apa.democratic_response --query "What is AI?"
     python -m apa.democratic_response --query "..." --methods borda_count,copeland
@@ -39,11 +33,15 @@ from apa.config import (
 from apa.levers.slate_generation import temperature_sampling
 from apa.levers.voter_aggregation import AGGREGATION_METHODS
 from apa.levers.voter_sampling import (
+    _normalize_source_label,
+    parse_jury_source_spec,
+    per_group_sampling,
     random_sampling,
     stratified_sampling,
     temporal_mix_sampling,
     weighted_sampling,
 )
+from apa._logging import log as _log
 from apa.lore_adapt import LoReScorer
 
 SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
@@ -52,11 +50,6 @@ SAMPLING_METHODS: dict[str, Callable[..., list[str]]] = {
     "weighted": weighted_sampling,
     "temporal_mix": temporal_mix_sampling,
 }
-
-
-def _log(msg: str) -> None:
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {msg}", flush=True)
 
 
 # =============================================================================
@@ -237,61 +230,6 @@ def load_query_cases(path: str | Path) -> list[QueryCase]:
 # =============================================================================
 
 _CENTURY_RE = re.compile(r"C(\d{2,3})")
-_SOURCE_ALIASES = {"prism": "original", "original": "original"}
-# Matches user-facing period labels: C21, C021, 21C, c21, 13c, etc.
-_PERIOD_LABEL_RE = re.compile(r"^\s*C?0*(\d{1,3})C?\s*$", re.IGNORECASE)
-
-
-def _normalize_source_label(label: str) -> str:
-    """Normalise a jury-source label to the internal 'period' form.
-
-    Accepts 'prism'/'original' and century variants like 'C21', 'C017',
-    '21C', '17c'. Returns 'original' or 'NC' (e.g. '21C'). Unknown
-    labels pass through unchanged.
-    """
-    s = label.strip()
-    if not s:
-        return s
-    if s.lower() in _SOURCE_ALIASES:
-        return _SOURCE_ALIASES[s.lower()]
-    m = _PERIOD_LABEL_RE.match(s)
-    if m:
-        return f"{int(m.group(1))}C"
-    return s
-
-
-def parse_jury_source_spec(spec: str) -> tuple[str, int | None]:
-    """
-    Parse one ``--jury_sources`` token into (normalised_label, count).
-
-    Accepted forms:
-      - ``"C16"``       → ("16C", None)        # use all available
-      - ``"prism:10"``  → ("original", 10)     # sample 10
-      - ``"prism=10"``  → ("original", 10)     # `=` accepted as alias for `:`
-      - ``"C16:all"``   → ("16C", None)        # explicit "all"
-
-    Count of None means "include every available voter for this group".
-    """
-    raw = spec.strip()
-    if not raw:
-        raise ValueError("Empty jury source spec")
-    for sep in (":", "="):
-        if sep in raw:
-            label, count_str = raw.split(sep, 1)
-            label = label.strip()
-            count_str = count_str.strip().lower()
-            if count_str in {"", "all", "*"}:
-                return _normalize_source_label(label), None
-            try:
-                n = int(count_str)
-            except ValueError as e:
-                raise ValueError(
-                    f"Invalid jury source count in '{spec}': '{count_str}'"
-                ) from e
-            if n < 0:
-                raise ValueError(f"Jury source count must be >= 0, got {n} in '{spec}'")
-            return _normalize_source_label(label), n
-    return _normalize_source_label(raw), None
 
 
 def _period_for_user(user_id: str, origin: str) -> str:
@@ -326,10 +264,6 @@ def build_default_jury(
       - Adapted users: W_adapted_hist_top3_K{K}_K{K}.pt by default
         (the curated 27-user "top-3 per century" adaptation); callers
         may override with a specific path or list of paths.
-
-    Note: legacy per-century historical W_C*.pt files are intentionally not
-    loaded — they are artifacts of earlier training code and have been
-    superseded by the adapted-user pipeline.
 
     Per-voter metadata carries:
       - 'period': 'original' for PRISM, 'NC' for adapted (e.g. '13C').
@@ -579,64 +513,12 @@ class DemocraticInference:
             raise RuntimeError("Jury is empty — no users loaded into the scorer.")
 
         if self.jury_sources:
-            requested = [label for label, _ in self.jury_sources]
-            counts = {label: count for label, count in self.jury_sources}
-            pool = [
-                uid for uid in all_user_ids
-                if self.user_metadata.get(uid, {}).get("period") in counts
-            ]
-            by_group: dict[str, list[str]] = {g: [] for g in requested}
-            for uid in pool:
-                by_group[self.user_metadata[uid]["period"]].append(uid)
-            empty = [g for g, members in by_group.items() if not members]
-            if empty:
-                raise ValueError(
-                    f"No voters in jury for requested source(s) {empty}. "
-                    f"Available periods: "
-                    f"{sorted({m.get('period') for m in self.user_metadata.values()})}"
-                )
-
-            explicit_counts = any(c is not None for c in counts.values())
-            if explicit_counts:
-                # Per-group sampling: bare label = all available; label:N = N.
-                sampled_user_ids = []
-                for label in requested:
-                    members = by_group[label]
-                    requested_n = counts[label]
-                    if requested_n is None:
-                        sampled_user_ids.extend(members)
-                    else:
-                        if requested_n > len(members):
-                            raise ValueError(
-                                f"Requested {requested_n} voters from '{label}' "
-                                f"but only {len(members)} are available."
-                            )
-                        # Determinism comes from the global random.seed() call
-                        # at the top of __call__; do not pass a per-call seed
-                        # here or it will desync from per_voter_rankings.
-                        sampled_user_ids.extend(random.sample(members, requested_n))
-                sampling_strategy = "per_group"
-                sample_config = {
-                    "per_group_counts": {
-                        label: (counts[label] if counts[label] is not None else len(by_group[label]))
-                        for label in requested
-                    },
-                }
-                _log(
-                    f"Sampling {len(sampled_user_ids)} voters from {len(pool)} "
-                    f"(filtered to {requested}) via per-group selection: "
-                    f"{sample_config['per_group_counts']}"
-                )
-            else:
-                sampling_strategy = "stratified"
-                sample_fn = SAMPLING_METHODS[sampling_strategy]
-                sample_config = {"stratify_by": "period"}
-                m = min(self.m_voters, len(pool))
-                _log(
-                    f"Sampling {m} voters from {len(pool)} (filtered to "
-                    f"{requested}) via stratified-by-period..."
-                )
-                sampled_user_ids = sample_fn(pool, self.user_metadata, m, sample_config)
+            sampled_user_ids, sampling_strategy, sample_config = per_group_sampling(
+                all_user_ids,
+                self.user_metadata,
+                self.jury_sources,
+                m_voters_fallback=self.m_voters,
+            )
         else:
             m = min(self.m_voters, len(all_user_ids))
             sample_fn = SAMPLING_METHODS[self.sampling]
@@ -718,8 +600,6 @@ class DemocraticInference:
                     if self.jury_sources else None
                 ),
                 "seed": self.seed,
-                # The inference LLM only matters when WE generated responses.
-                # If responses were supplied (e.g. from a file), log None.
                 "inference_llm": (
                     InferenceLLMConfig().model_name if generated_by_llm else None
                 ),

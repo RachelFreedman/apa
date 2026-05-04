@@ -20,7 +20,6 @@ import gc
 import json
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +29,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
+
+from apa._logging import log
 
 
 # =============================================================================
@@ -487,10 +488,6 @@ def run_regularized(
     few_shot_train_accuracies_few_shot_std = []
     unseen_user_unseen_prompts_accuracies_few_shot_std = []
 
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
-
     for alpha in alpha_list:
         log(f"Alpha: {alpha}")
 
@@ -587,7 +584,8 @@ def main() -> None:
     parser.add_argument("--embeddings_dir", type=str, default=None, help="Embeddings directory")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save_plot", action="store_true", default=True, help="Save accuracy plot")
+    parser.add_argument("--save_plot", action=argparse.BooleanOptionalAction, default=True,
+                        help="Save accuracy plot (use --no-save_plot to disable)")
     parser.add_argument("--embedding_model", type=str, default="Skywork/Skywork-Reward-Llama-3.1-8B-v0.2")
     args = parser.parse_args()
 
@@ -595,10 +593,6 @@ def main() -> None:
 
     K_list = [int(k.strip()) for k in args.K_list.split(",")]
     alpha_list = [args.alpha]
-
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
 
     script_start = time.time()
     log("=" * 60)

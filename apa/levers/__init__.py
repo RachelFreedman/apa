@@ -8,6 +8,8 @@ Strategy modules for democratic inference.
 """
 
 from apa.levers.voter_sampling import (
+    parse_jury_source_spec,
+    per_group_sampling,
     random_sampling,
     stratified_sampling,
     weighted_sampling,
@@ -27,6 +29,8 @@ __all__ = [
     "stratified_sampling",
     "weighted_sampling",
     "temporal_mix_sampling",
+    "per_group_sampling",
+    "parse_jury_source_spec",
     "borda_count",
     "plurality",
     "copeland",

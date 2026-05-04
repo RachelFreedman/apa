@@ -72,11 +72,6 @@ def random_prefs(
 ) -> dict[str, list[PreferencePair]]:
     """Generate *n* preference pairs with randomly flipped labels.
 
-    Prompts and responses come from the source data, but for each pair a
-    fair coin decides which response is "chosen" vs "rejected".  This
-    destroys any real preference signal while keeping the same text
-    distribution — useful as a null baseline for suitability metrics.
-
     Pairs are sampled with replacement from the source data so *n* may
     exceed the original dataset size.
     """

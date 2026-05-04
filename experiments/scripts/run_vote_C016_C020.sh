@@ -6,11 +6,18 @@
 # Jury = all 10 C016 + all 10 C020 historical voters + 10 randomly-sampled
 # PRISM voters. Frozen LoRe basis V_K8 (PRISM-trained); historical voters
 # from W_adapted_hist_C016_C020_filtered.pt; PRISM voters from W_seen_K8.pt.
+#
+# Defaults to the repo-tracked checkpoints under experiments/checkpoints/ so
+# this script reproduces the paper exactly without depending on the lab NAS.
+# Override paths via --V_checkpoint / --prism_users / --adapted_users (or
+# the env vars below) if you've trained your own.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RESPONSES="$REPO_ROOT/experiments/query_responses.jsonl"
-ADAPTED="/nas/ucb/rachel/APA/models/W_adapted_hist_C016_C020_filtered.pt"
+V_CHECKPOINT="${V_CHECKPOINT:-$REPO_ROOT/experiments/checkpoints/V_K8.pt}"
+PRISM_USERS="${PRISM_USERS:-$REPO_ROOT/experiments/checkpoints/W_seen_K8.pt}"
+ADAPTED="${ADAPTED:-$REPO_ROOT/experiments/checkpoints/W_adapted_hist_C016_C020_filtered.pt}"
 OUT_DIR="$REPO_ROOT/experiments/vote_C016_C020"
 LOG_DIR="$REPO_ROOT/experiments/logs"
 AUDIT_LOG="$OUT_DIR/audit_log.json"
@@ -22,6 +29,8 @@ cd "$REPO_ROOT"
 #    --methods runs every aggregation method we have so we can compare.
 uv run python -m apa.democratic_response \
     --responses_file "$RESPONSES" \
+    --V_checkpoint "$V_CHECKPOINT" \
+    --prism_users "$PRISM_USERS" \
     --adapted_users "$ADAPTED" \
     --jury_sources "C16,C20,prism:10" \
     --methods borda_count,plurality,copeland,instant_runoff \

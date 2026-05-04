@@ -14,11 +14,13 @@ from apa.levers.voter_aggregation import (
 )
 from apa.levers.query_selection import random_subset, select_by_ids
 from apa.levers.voter_sampling import (
+    _normalize_source_label,
+    parse_jury_source_spec,
+    per_group_sampling,
     random_sampling,
     stratified_sampling,
     temporal_mix_sampling,
 )
-from apa.levers.query_selection import random_subset
 
 
 class TestVoterAggregation:
@@ -211,3 +213,93 @@ class TestSelectByIds:
         })
         result = select_by_ids(df, [1])
         assert len(result) == 1
+
+
+class TestPerGroupSampling:
+    """Tests for the per_group_sampling lever (backs --jury_sources)."""
+
+    @staticmethod
+    def _jury_setup():
+        all_users = [f"prism_{i}" for i in range(20)] + \
+                    [f"hist_C016_{i:02d}" for i in range(10)] + \
+                    [f"hist_C020_{i:02d}" for i in range(10)]
+        metadata = {}
+        for u in all_users:
+            if u.startswith("prism_"):
+                metadata[u] = {"period": "original"}
+            elif "C016" in u:
+                metadata[u] = {"period": "16C"}
+            else:
+                metadata[u] = {"period": "20C"}
+        return all_users, metadata
+
+    def test_explicit_counts_per_group(self):
+        all_users, metadata = self._jury_setup()
+        import random
+        random.seed(42)
+        sampled, strategy, cfg = per_group_sampling(
+            all_users, metadata,
+            jury_sources=[("16C", None), ("20C", None), ("original", 10)],
+            m_voters_fallback=10,
+        )
+        assert strategy == "per_group"
+        assert cfg["per_group_counts"] == {"16C": 10, "20C": 10, "original": 10}
+        assert len(sampled) == 30
+        # All-of-group selections must include every member.
+        c16 = [u for u in sampled if metadata[u]["period"] == "16C"]
+        c20 = [u for u in sampled if metadata[u]["period"] == "20C"]
+        prism = [u for u in sampled if metadata[u]["period"] == "original"]
+        assert len(c16) == 10 and len(c20) == 10 and len(prism) == 10
+
+    def test_fallback_to_stratified_when_no_counts(self):
+        all_users, metadata = self._jury_setup()
+        import random
+        random.seed(42)
+        sampled, strategy, cfg = per_group_sampling(
+            all_users, metadata,
+            jury_sources=[("16C", None), ("20C", None)],
+            m_voters_fallback=6,
+        )
+        assert strategy == "stratified"
+        assert cfg == {"stratify_by": "period"}
+        assert len(sampled) == 6
+
+    def test_missing_group_raises(self):
+        all_users, metadata = self._jury_setup()
+        with pytest.raises(ValueError, match="No voters in jury"):
+            per_group_sampling(
+                all_users, metadata,
+                jury_sources=[("99C", None)],
+                m_voters_fallback=5,
+            )
+
+    def test_count_exceeds_available_raises(self):
+        all_users, metadata = self._jury_setup()
+        with pytest.raises(ValueError, match="only 10 are available"):
+            per_group_sampling(
+                all_users, metadata,
+                jury_sources=[("16C", 11)],
+                m_voters_fallback=10,
+            )
+
+    def test_normalize_source_label(self):
+        assert _normalize_source_label("prism") == "original"
+        assert _normalize_source_label("original") == "original"
+        assert _normalize_source_label("C21") == "21C"
+        assert _normalize_source_label("c21") == "21C"
+        assert _normalize_source_label("C017") == "17C"
+        assert _normalize_source_label("21C") == "21C"
+        assert _normalize_source_label("13c") == "13C"
+        assert _normalize_source_label("weird") == "weird"
+
+    def test_parse_jury_source_spec(self):
+        assert parse_jury_source_spec("C16") == ("16C", None)
+        assert parse_jury_source_spec("prism") == ("original", None)
+        assert parse_jury_source_spec("prism:10") == ("original", 10)
+        assert parse_jury_source_spec("C16=3") == ("16C", 3)
+        assert parse_jury_source_spec("C16:all") == ("16C", None)
+        assert parse_jury_source_spec("prism:*") == ("original", None)
+        with pytest.raises(ValueError, match="Invalid"):
+            parse_jury_source_spec("prism:abc")
+        with pytest.raises(ValueError, match=">= 0"):
+            parse_jury_source_spec("prism:-1")

@@ -24,6 +24,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from apa._logging import log
+
 
 # =============================================================================
 # Adaptation Functions
@@ -380,7 +382,7 @@ def main() -> None:
     )
     parser.add_argument("prefs_path", type=Path, help="Path to JSONL preferences file")
     parser.add_argument("--K", type=int, default=8, help="LoRe rank (must match a V_K*.pt checkpoint)")
-    parser.add_argument("--V", "--basis", type=Path, default=None, dest="basis_path",
+    parser.add_argument("--basis", type=Path, default=None, dest="basis_path",
                         help="Path to V basis checkpoint. Default: MODELS_DIR/V_K{K}.pt")
     parser.add_argument("--num_iterations", type=int, default=500, help="Few-shot iterations")
     parser.add_argument("--learning_rate", type=float, default=0.5, help="Few-shot learning rate")
@@ -392,10 +394,6 @@ def main() -> None:
     args = parser.parse_args()
 
     configure_environment()
-
-    def log(message: str) -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
 
     script_start = time.time()
     log("=" * 60)

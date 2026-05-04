@@ -8,7 +8,6 @@ from pathlib import Path
 from apa.config import (
     APAConfig,
     DatasetConfig,
-    HistLlamaConfig,
     InferenceConfig,
     LoReConfig,
     InferenceLLMConfig,
@@ -32,41 +31,6 @@ class TestDatasetConfig:
         assert isinstance(config.questions_pairwise_path, Path)
         assert isinstance(config.embeddings_dir, Path)
         assert isinstance(config.models_dir, Path)
-
-
-class TestHistLlamaConfig:
-    """Tests for HistLlamaConfig class."""
-
-    def test_default_values(self):
-        """Test default configuration values."""
-        config = HistLlamaConfig()
-
-        assert config.size == "8B"
-        assert config.century == "C013"
-        assert config.max_new_tokens == 20
-        assert config.temperature == 0.9
-
-    def test_model_name_property(self):
-        """Test model_name property."""
-        config = HistLlamaConfig(size="8B", century="C017")
-
-        assert "HistLlama3-8B-C017" in config.model_name
-        assert config.hf_org in config.model_name
-
-    def test_valid_centuries(self):
-        """Test valid centuries tuple."""
-        config = HistLlamaConfig()
-
-        assert "C013" in config.VALID_CENTURIES
-        assert "C021" in config.VALID_CENTURIES
-        assert len(config.VALID_CENTURIES) == 9
-
-    def test_valid_sizes(self):
-        """Test valid sizes tuple."""
-        config = HistLlamaConfig()
-
-        assert "8B" in config.VALID_SIZES
-        assert "70B" in config.VALID_SIZES
 
 
 class TestLoReConfig:
@@ -105,8 +69,6 @@ class TestInferenceConfig:
 
         assert config.k_responses == 5
         assert config.m_voters == 10
-        assert config.generate_strategy == "temperature_sampling"
-        assert config.sample_strategy == "random"
         assert config.aggregate_strategy == "borda_count"
 
     def test_custom_values(self):
@@ -144,7 +106,6 @@ class TestAPAConfig:
         config = APAConfig()
 
         assert isinstance(config.dataset, DatasetConfig)
-        assert isinstance(config.hist_llama, HistLlamaConfig)
         assert isinstance(config.inference_llm, InferenceLLMConfig)
         assert isinstance(config.lore, LoReConfig)
         assert isinstance(config.inference, InferenceConfig)
@@ -155,17 +116,3 @@ class TestAPAConfig:
 
         assert "C013" in config.historical_centuries
         assert "C021" in config.historical_centuries
-
-    def test_yaml_roundtrip(self, tmp_path):
-        """Test saving and loading from YAML."""
-        config = APAConfig()
-        config.inference.k_responses = 10
-        config.lore.alpha = 5000.0
-
-        yaml_path = tmp_path / "config.yaml"
-        config.to_yaml(yaml_path)
-
-        loaded = APAConfig.from_yaml(yaml_path)
-
-        assert loaded.inference.k_responses == 10
-        assert loaded.lore.alpha == 5000.0

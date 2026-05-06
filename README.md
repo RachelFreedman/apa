@@ -224,6 +224,7 @@ uv run pytest -q                 # ~30 min (includes test_lore.py + test_suitabi
 
 ## External resources
 
+- [APA paper](https://arxiv.org/abs/2605.01642)
 - [LoRe paper](https://arxiv.org/abs/2504.14439)
 - [LoRe code](https://github.com/facebookresearch/LoRe)
 - [PRISM dataset](https://github.com/HannahKirk/prism-alignment)

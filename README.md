@@ -15,7 +15,7 @@ models. The pipeline:
 If you use this code, please cite the corresponding paper: 
 
 ```bibtex
-@misc{freedman2026apa,
+@misc{2026apa,
       title={Adaptive Pluralistic Alignment: A pipeline for dynamic artificial democracy}, 
       author={Rachel Freedman},
       year={2026},

@@ -1,12 +1,6 @@
 """
 Ranking aggregation strategies for democratic voting.
 
-Strategies:
-- borda_count: Points based on position (default)
-- plurality: Only count first-place votes
-- copeland: Pairwise wins/losses
-- instant_runoff: Iterative elimination (IRV)
-
 Implementations delegate to the pref_voting package.
 """
 

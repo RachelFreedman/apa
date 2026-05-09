@@ -98,12 +98,6 @@ def load_hist_llama(
     """
     Load a HistLlama model for a specific century as a vLLM ``LLM`` instance.
 
-    The returned ``LLM`` does PagedAttention and continuous batching over the
-    list of prompts passed to ``LLM.generate(...)``, which is ~10–50× faster
-    than calling HF ``model.generate()`` once per query.  The tokenizer is
-    returned alongside because callers still need ``apply_chat_template`` to
-    format prompts and the token ids of "1" / "2" to extract logprobs.
-
     Args:
         century: Century code (e.g., "C013" for 13th century)
         size: Model size ("8B" or "70B")
@@ -162,13 +156,6 @@ def _build_comparison_messages(
     user_profile: str | None,
 ) -> list[dict]:
     """Build the chat-message list for a pairwise comparison.
-
-    The persona goes in the system role (not stuffed into the user turn) and
-    responses are deterministically labelled X (first) and Y (second).  This
-    is paired with the two-orderings averaging in
-    :func:`preference_from_logprobs`, which symmetrically cancels out any
-    letter-specific prior in the soft-preference signal — randomizing labels
-    breaks that cancellation and was empirically worse.
     """
     if user_profile:
         system = (

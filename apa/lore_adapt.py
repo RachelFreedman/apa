@@ -293,9 +293,7 @@ class LoReScorer:
         Batched-embed a list of texts using the scorer's embedding model.
 
         Lazy-loads the embedding model on first call. Returns a float32
-        tensor of shape (len(texts), embedding_dim). Intended for callers
-        that score many responses per user — more efficient than calling
-        ``score()`` once per (text, user) pair.
+        tensor of shape (len(texts), embedding_dim). 
         """
         from apa.train_lore_bases import embed_texts as _embed_texts
 

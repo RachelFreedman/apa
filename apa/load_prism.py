@@ -1,14 +1,6 @@
 """
 PRISM dataset loading, embedding generation, and checkpoint management.
 
-This module provides:
-- PRISMDataset: PyTorch Dataset for pairwise preferences
-- load_prism_pairwise: Load PRISM CSV data
-- group_embeddings_by_user: Group embeddings for LoRe training
-- CheckpointManager: Long-running training state management
-- prepare_prism_data: Prepare parquet files with proper train/test splits
-- CLI for generating embeddings
-
 CLI Usage:
     uv run python -m apa.load_prism              # Prepare data and generate all embeddings
     uv run python -m apa.load_prism --split train --n_samples 100  # Limit to train split

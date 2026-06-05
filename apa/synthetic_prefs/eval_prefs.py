@@ -1,15 +1,6 @@
 """
 LoRe dataset suitability evaluation.
 
-This module provides a spectrum of diagnostic metrics — from cheap heuristics to
-full LoRe fitting — that predict how well LoRe will learn distinct, predictive
-user representations for a new dataset.
-
-Assumed inputs for a new dataset:
-  1. Raw user preferences (prompt + chosen + rejected text, grouped by user_id)
-  2. Pretrained LoRe bases V (Tensor[embed_dim, K])
-  3. The reward model (for embedding computation)
-
 Usage::
 
     from apa.synthetic_prefs.eval_prefs import embed_preferences, evaluate_suitability
@@ -34,17 +25,6 @@ Accepts a path to raw preference data in one of two formats:
 
   Parquet (PRISM format) — with columns including prompt (list of chat dicts)
       and extra_info containing user_id, chosen_utterance, rejected_utterance.
-
-Metrics (raw text only):
-    annotation_density, prompt_diversity_surface
-
-Metrics (embeddings required):
-    label_balance, inter_user_agreement, krippendorff_alpha_proxy,
-    nearest_neighbor_accuracy
-
-Metrics (embeddings + pretrained V):
-    basis_space_coherence, population_accuracy, fit_user_vectors,
-    user_vector_diversity, basis_utilization_entropy, held_out_accuracy
 """
 
 from __future__ import annotations

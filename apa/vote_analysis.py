@@ -2,17 +2,6 @@
 Post-process a democratic-vote audit log: per-group aggregations and
 intra/inter-group rank-agreement.
 
-Consumes an audit log written by ``apa.democratic_response`` (a JSON list of
-``InferenceResult`` dicts) and, for each query case, computes:
-
-  - **Per-group aggregations** under every method in
-    ``apa.levers.voter_aggregation`` (``borda_count``, ``plurality``,
-    ``copeland``, ``instant_runoff``), grouping voters by their
-    ``sampled_user_metadata[uid]["period"]``.
-  - **Mean pairwise rank agreement** within each group and between every
-    pair of groups, reported as Spearman ρ and Kendall τ-b on the full
-    response rankings.
-
 Outputs:
   - ``vote_analysis.json``: structured per-case results, plus the jury
     composition (voters per group).

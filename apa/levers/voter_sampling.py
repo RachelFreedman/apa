@@ -2,14 +2,6 @@
 User sampling strategies for democratic voting — i.e. how the jury that
 votes on each query is drawn from the pool of available reward models.
 
-Strategies:
-- random_sampling: Uniform random sampling
-- stratified_sampling: Sample proportionally from groups
-- weighted_sampling: Sample based on user weights
-- temporal_mix_sampling: Mix modern and historical users
-- per_group_sampling: Filter to named groups, then take a fixed count from
-  each (or the whole group). Backs the ``--jury_sources`` CLI flag.
-
 Also exposes the parsing helpers (``parse_jury_source_spec``,
 ``_normalize_source_label``) for the ``--jury_sources`` flag, since the
 labels they produce are exactly the period-tags this module's
@@ -232,9 +224,6 @@ def per_group_sampling(
         sampling without replacement from each group; or
       - falls back to stratified-by-period sampling capped at
         ``m_voters_fallback`` (when every group's count is ``None``).
-
-    Determinism comes from the caller's ``random.seed`` setup; this
-    function uses ``random.sample`` from the global state.
 
     Returns ``(sampled_user_ids, audit_strategy, audit_config)`` where the
     last two are the values to record in the vote's audit log so the

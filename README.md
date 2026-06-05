@@ -15,13 +15,21 @@ models. The pipeline:
 If you use this code, please cite the corresponding paper: 
 
 ```bibtex
-TODO
+@misc{2026apa,
+      title={Adaptive Pluralistic Alignment: A pipeline for dynamic artificial democracy}, 
+      author={Rachel Freedman},
+      year={2026},
+      eprint={2605.01642},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2605.01642}, 
+}
 ```
 
 This code adapts the LoRe implementation from `https://github.com/facebookresearch/LoRe`. If you use this portion of the code, please also cite the LoRe paper: 
 
 ```bibtex
-@misc{bose2025lorepersonalizingllmslowrank,
+@misc{bose2025lore,
       title={LoRe: Personalizing LLMs via Low-Rank Reward Modeling}, 
       author={Avinandan Bose and Zhihan Xiong and Yuejie Chi and Simon Shaolei Du and Lin Xiao and Maryam Fazel},
       year={2025},
@@ -216,6 +224,7 @@ uv run pytest -q                 # ~30 min (includes test_lore.py + test_suitabi
 
 ## External resources
 
+- [APA paper](https://arxiv.org/abs/2605.01642)
 - [LoRe paper](https://arxiv.org/abs/2504.14439)
 - [LoRe code](https://github.com/facebookresearch/LoRe)
 - [PRISM dataset](https://github.com/HannahKirk/prism-alignment)

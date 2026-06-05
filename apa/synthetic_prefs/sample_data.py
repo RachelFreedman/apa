@@ -1,17 +1,6 @@
 """
 Sample or synthesize preference data for suitability evaluation baselines.
 
-Provides two operations on raw text preferences:
-
-  sample_prefs   — randomly select N preference pairs from an existing file
-  random_prefs   — take prompts + responses from an existing file but randomly
-                   flip chosen/rejected labels (destroying any real signal)
-
-And two parallel operations on pre-computed embeddings:
-
-  sample_embeddings — randomly select N users from embedding tensors
-  random_embeddings — randomly flip embedding signs (label shuffle)
-
 Usage (raw text):
     python -m apa.synthetic_prefs.sample_data sample path/to/prefs.jsonl -n 100
     python -m apa.synthetic_prefs.sample_data random path/to/prefs.jsonl -n 100

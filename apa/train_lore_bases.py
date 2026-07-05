@@ -105,19 +105,6 @@ def _extract_embedding(model: Any, tokenizer: Any, text: str, device: str = "cud
     return embedding.float().cpu().numpy()
 
 
-def embed_text(
-    text: str,
-    model: Any | None = None,
-    tokenizer: Any | None = None,
-    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
-) -> np.ndarray:
-    """Embed a single text string."""
-    if model is None or tokenizer is None:
-        model, tokenizer = get_embedding_model(model_name)
-    device = next(model.parameters()).device
-    return _extract_embedding(model, tokenizer, text, str(device))
-
-
 def embed_texts(
     texts: list[str],
     model: Any | None = None,
@@ -246,7 +233,7 @@ class LoReTrainer(nn.Module):
             y_list.append(torch.full((x.shape[0],), i, device=x.device, dtype=torch.long))
         return torch.cat(x_list, dim=0), torch.cat(y_list, dim=0)
 
-    def _forward_from_packed(self, X_cat: torch.Tensor, y: torch.Tensor, alpha_curr: float) -> tuple[torch.Tensor, float, float]:
+    def _forward_from_packed(self, X_cat: torch.Tensor, y: torch.Tensor, alpha_curr: float) -> tuple[torch.Tensor, torch.Tensor | float]:
         W_row = F.softmax(self.W, dim=1)
         Vw = self.V @ W_row.T
         logits_all = (X_cat @ Vw) / self.logits_scale
@@ -260,7 +247,7 @@ class LoReTrainer(nn.Module):
             cos_sim = (V_norm * V_sft_norm).sum(dim=0)
             reg = torch.mean(1 - cos_sim)
 
-        return nll, reg, 0.0
+        return nll, reg
 
     def _alpha_at_step(self, step: int) -> float:
         """Compute alpha with warmup (0 for first 20%, linear to full at 80%)."""
@@ -304,14 +291,14 @@ class LoReTrainer(nn.Module):
 
             # Update W
             optimizer_W.zero_grad()
-            nll_W, _, _ = self._forward_from_packed(X_cat, y, alpha_curr=0.0)
+            nll_W, _ = self._forward_from_packed(X_cat, y, alpha_curr=0.0)
             nll_W.backward()
             grad_norm_W = self.W.grad.norm().item() if self.W.grad is not None else 0.0
             optimizer_W.step()
 
             # Update V
             optimizer_V.zero_grad()
-            nll_V, reg, _ = self._forward_from_packed(X_cat, y, alpha_curr=alpha_curr)
+            nll_V, reg = self._forward_from_packed(X_cat, y, alpha_curr=alpha_curr)
             total_loss_V = nll_V + alpha_curr * reg
             total_loss_V.backward()
             grad_norm_V = self.V.grad.norm().item() if self.V.grad is not None else 0.0

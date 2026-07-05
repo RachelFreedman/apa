@@ -21,7 +21,6 @@ import gc
 import json
 import os
 import random
-import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -742,51 +741,6 @@ class CheckpointManager:
         if self.checkpoint_path.exists():
             self.checkpoint_path.unlink()
             print(f"[Checkpoint] Removed: {self.checkpoint_path}")
-
-
-def save_with_symlink(
-    data: pd.DataFrame | torch.Tensor | dict,
-    nas_path: Path,
-    local_path: Path | None = None,
-    sep: str = '\t',
-) -> None:
-    """Save data to NAS and optionally create symlink in local directory."""
-    nas_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if isinstance(data, pd.DataFrame):
-        data.to_csv(nas_path, sep=sep, index=False)
-    elif isinstance(data, (torch.Tensor, dict)):
-        torch.save(data, nas_path)
-    else:
-        raise TypeError(f"Unsupported data type: {type(data)}")
-
-    print(f"Saved to {nas_path}")
-
-    if local_path is not None:
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-        if local_path.exists() or local_path.is_symlink():
-            local_path.unlink()
-        local_path.symlink_to(nas_path)
-        print(f"Created symlink: {local_path} -> {nas_path}")
-
-
-def load_from_nas(nas_path: Path) -> Any:
-    """Load data from NAS path (auto-detects file type)."""
-    if not nas_path.exists():
-        raise FileNotFoundError(f"File not found: {nas_path}")
-
-    suffix = nas_path.suffix.lower()
-    if suffix in ['.pt', '.pth']:
-        return torch.load(nas_path, map_location='cpu')
-    elif suffix == '.pkl':
-        import pickle
-        with open(nas_path, 'rb') as f:
-            return pickle.load(f)
-    elif suffix in ['.csv', '.tsv']:
-        sep = '\t' if suffix == '.tsv' else ','
-        return pd.read_csv(nas_path, sep=sep)
-    else:
-        raise ValueError(f"Unknown file extension: {suffix}")
 
 
 # =============================================================================

@@ -7,12 +7,48 @@ import numpy as np
 import pandas as pd
 import torch
 
+import random
+
 from apa.load_prism import (
     get_user_column,
     get_unique_users,
     load_prism_pairwise,
     PRISMDataset,
+    UserInfo,
+    _split_users_and_dialogs,
 )
+
+
+class TestUserSplit:
+    """Tests for the seen/unseen + train/test split (local-RNG reproducibility)."""
+
+    def _users(self, n=60, n_dialogs=8):
+        return {
+            f"user_{i}": UserInfo(user_id=f"user_{i}", dialog_ids=[f"d_{i}_{j}" for j in range(n_dialogs)])
+            for i in range(n)
+        }
+
+    def test_split_reproducible_same_seed(self):
+        users = self._users()
+        s1 = _split_users_and_dialogs(users, seed=123)
+        s2 = _split_users_and_dialogs(users, seed=123)
+        assert s1 == s2
+
+    def test_split_varies_with_seed(self):
+        users = self._users()
+        s1 = _split_users_and_dialogs(users, seed=123)
+        s3 = _split_users_and_dialogs(users, seed=7)
+        assert s1["seen_user_ids"] != s3["seen_user_ids"]
+
+    def test_local_random_matches_global_seed(self):
+        # The invariant the local-RNG refactor relies on: random.Random(seed)
+        # produces the same sequence as random.seed(seed) + module shuffles.
+        a = list(range(100))
+        random.seed(123)
+        random.shuffle(a)
+        b = list(range(100))
+        random.Random(123).shuffle(b)
+        assert a == b
 
 
 class TestLoadPrismPairwise:

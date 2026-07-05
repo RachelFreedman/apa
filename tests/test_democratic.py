@@ -57,7 +57,7 @@ def _patch_generation(monkeypatch, pool):
     """Stub response generation + embedding so no models are needed."""
     monkeypatch.setattr(
         dr, "generate_responses",
-        lambda query, k, model, tokenizer: [f"r{i}" for i in range(k)],
+        lambda query, k, model, tokenizer, generate_strategy=None: [f"r{i}" for i in range(k)],
     )
     # One-hot embeddings for the 3 responses -> score_i == w[i].
     monkeypatch.setattr(
@@ -77,6 +77,45 @@ def test_default_strategies_match_previous_hardcoded_behavior():
     assert di.aggregator is borda_count
     assert di.sample_strategy == "random"
     assert di.aggregate_strategy == "borda_count"
+    assert di.generate_strategy == "temperature_sampling"
+    # Default random sampler ignores metadata, so it isn't built.
+    assert di._sampler_needs_metadata is False
+
+
+def test_unknown_generate_strategy_raises():
+    import pytest
+
+    pool = _make_pool()
+    with pytest.raises(ValueError):
+        DemocraticInference(pool, model=_Fake(), tokenizer=_Fake(), generate_strategy="nope")
+
+
+def test_empty_pool_raises(monkeypatch):
+    import pytest
+
+    pool = VoterPool(torch.eye(3))  # no voters added
+    di = DemocraticInference(pool, k_responses=3, m_voters=6, model=_Fake(), tokenizer=_Fake())
+    _patch_generation(monkeypatch, pool)
+    with pytest.raises(ValueError, match="empty"):
+        di("q")
+
+
+def test_metadata_sampler_reachable_through_orchestrator(monkeypatch):
+    """A metadata-using sampler (stratified) runs end-to-end via DemocraticInference."""
+    pool = _make_pool()
+    for i, uid in enumerate(pool.get_all_user_ids()):
+        pool.voters[uid].metadata["century"] = "C013" if i % 2 else "C021"
+
+    di = DemocraticInference(
+        pool, k_responses=3, m_voters=6, model=_Fake(), tokenizer=_Fake(),
+        sample_strategy="stratified", sample_config={"stratify_by": "century"},
+    )
+    assert di._sampler_needs_metadata is True  # metadata WILL be built
+
+    _patch_generation(monkeypatch, pool)
+    result = di("q")
+    assert result.winner_idx in (0, 1, 2)
+    assert len(result.rankings) > 0  # at least one voter was sampled & ranked
 
 
 def test_default_borda_winner(monkeypatch):

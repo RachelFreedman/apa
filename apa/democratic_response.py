@@ -73,14 +73,17 @@ def generate_responses(
     tokenizer: Any | None = None,
     temperature: float = 1.2,
     max_new_tokens: int = 512,
+    generate_strategy: str | None = None,
 ) -> list[str]:
-    """Generate k diverse responses using the temperature_sampling lever."""
-    from apa.levers.slate_generation import temperature_sampling
+    """Generate k diverse responses via the configured generation lever."""
+    from apa.config import InferenceConfig
+    from apa.levers import get_generator
 
     if model is None or tokenizer is None:
         model, tokenizer = load_inference_llm()
 
-    return temperature_sampling(
+    generator = get_generator(generate_strategy or InferenceConfig().generate_strategy)
+    return generator(
         model, tokenizer, query, k,
         {"temperature": temperature, "max_new_tokens": max_new_tokens},
     )
@@ -268,24 +271,31 @@ class DemocraticInference:
         tokenizer: Any = None,
         sample_strategy: str | None = None,
         aggregate_strategy: str | None = None,
+        generate_strategy: str | None = None,
         sample_config: dict | None = None,
         aggregate_config: dict | None = None,
         seed: int | None = None,
     ):
         from apa.config import InferenceConfig
-        from apa.levers import get_sampler, get_aggregator
+        from apa.levers import get_sampler, get_aggregator, get_generator
+        from apa.levers.voter_sampling import random_sampling
 
         self.voter_pool = voter_pool
         self.k_responses = k_responses
         self.m_voters = m_voters
 
         # Resolve strategies from config defaults; the defaults
-        # ("random" + "borda_count") reproduce the previous hardcoded behavior.
+        # ("random" + "borda_count" + "temperature_sampling") reproduce the
+        # previous hardcoded behavior.
         inf = InferenceConfig()
         self.sample_strategy = sample_strategy or inf.sample_strategy
         self.aggregate_strategy = aggregate_strategy or inf.aggregate_strategy
+        self.generate_strategy = generate_strategy or inf.generate_strategy
         self.sampler = get_sampler(self.sample_strategy)
         self.aggregator = get_aggregator(self.aggregate_strategy)
+        get_generator(self.generate_strategy)  # validate now (fail fast)
+        # random_sampling ignores voter metadata; skip building it in that case.
+        self._sampler_needs_metadata = self.sampler is not random_sampling
         self.sample_config = dict(sample_config or {})
         self.aggregate_config = aggregate_config or {}
         # A seed makes voter sampling reproducible via the lever's local RNG.
@@ -301,25 +311,36 @@ class DemocraticInference:
         k = k or self.k_responses
         m = m or self.m_voters
 
+        all_user_ids = self.voter_pool.get_all_user_ids()
+        if not all_user_ids:
+            raise ValueError(
+                "Voter pool is empty — load PRISM user vectors (prism_users) "
+                "and/or historical user vectors before running inference."
+            )
+
         print(f"Generating {k} responses...")
-        responses = generate_responses(query, k, self.model, self.tokenizer)
+        responses = generate_responses(
+            query, k, self.model, self.tokenizer, generate_strategy=self.generate_strategy
+        )
 
         print("Embedding responses...")
         embeddings = self.voter_pool.embed_responses(responses, query=query)
 
-        all_user_ids = self.voter_pool.get_all_user_ids()
-        print(f"Sampling {m} voters from {len(all_user_ids)} available "
-              f"(strategy={self.sample_strategy})...")
-        user_metadata = self.voter_pool.get_user_metadata()
+        # Only build voter metadata when the chosen sampler actually uses it.
+        user_metadata = self.voter_pool.get_user_metadata() if self._sampler_needs_metadata else None
         sampled_user_ids = self.sampler(
             all_user_ids, user_metadata, min(m, len(all_user_ids)), self.sample_config
         )
+        print(f"Sampled {len(sampled_user_ids)}/{len(all_user_ids)} voters "
+              f"(requested {m}, strategy={self.sample_strategy})")
 
         print("Collecting rankings...")
         rankings = self.voter_pool.collect_rankings(embeddings, sampled_user_ids)
 
         print(f"Aggregating rankings (strategy={self.aggregate_strategy})...")
         aggregate_ranking = self.aggregator(rankings, self.aggregate_config)
+        if not aggregate_ranking:
+            raise ValueError("Aggregation produced no ranking (no voters sampled).")
 
         winner_idx = aggregate_ranking[0]
         winner_response = responses[winner_idx]
@@ -365,6 +386,7 @@ class DemocraticInference:
         m_voters: int = 10,
         sample_strategy: str | None = None,
         aggregate_strategy: str | None = None,
+        generate_strategy: str | None = None,
         seed: int | None = None,
     ) -> "DemocraticInference":
         """Create DemocraticInference from checkpoints."""
@@ -376,7 +398,7 @@ class DemocraticInference:
         return cls(
             voter_pool=voter_pool, k_responses=k_responses, m_voters=m_voters,
             sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
-            seed=seed,
+            generate_strategy=generate_strategy, seed=seed,
         )
 
 
@@ -389,6 +411,7 @@ def quick_inference(
     m: int = 10,
     sample_strategy: str | None = None,
     aggregate_strategy: str | None = None,
+    generate_strategy: str | None = None,
     seed: int | None = None,
 ) -> str:
     """Quick function for running democratic inference."""
@@ -398,7 +421,7 @@ def quick_inference(
         historical_dir=historical_dir,
         k_responses=k, m_voters=m,
         sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
-        seed=seed,
+        generate_strategy=generate_strategy, seed=seed,
     )
     result = inference(query)
     return result.winner_response
@@ -433,6 +456,7 @@ def main() -> None:
     parser.add_argument("--historical_dir", type=str, default=None, help="Directory with historical user vectors")
     parser.add_argument("--sample_strategy", type=str, default=None, help="Voter-sampling strategy (default: config 'random')")
     parser.add_argument("--aggregate_strategy", type=str, default=None, help="Ranking-aggregation strategy (default: config 'borda_count')")
+    parser.add_argument("--generate_strategy", type=str, default=None, help="Response-generation strategy (default: config 'temperature_sampling')")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible generation + voter sampling")
     parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms (bitwise, slower)")
     parser.add_argument("--show_all", action="store_true", help="Show all responses and rankings")
@@ -470,7 +494,7 @@ def main() -> None:
         historical_dir=historical_dir if historical_dir.exists() else None,
         k_responses=args.k, m_voters=args.m,
         sample_strategy=args.sample_strategy, aggregate_strategy=args.aggregate_strategy,
-        seed=args.seed,
+        generate_strategy=args.generate_strategy, seed=args.seed,
     )
 
     print(f"Total voters: {len(inference.voter_pool.get_all_user_ids())}\n")

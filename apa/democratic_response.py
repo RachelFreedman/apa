@@ -74,30 +74,16 @@ def generate_responses(
     temperature: float = 1.2,
     max_new_tokens: int = 512,
 ) -> list[str]:
-    """Generate k diverse responses using temperature sampling."""
+    """Generate k diverse responses using the temperature_sampling lever."""
+    from apa.levers.slate_generation import temperature_sampling
+
     if model is None or tokenizer is None:
         model, tokenizer = load_inference_llm()
 
-    messages = [{"role": "user", "content": query}]
-    if hasattr(tokenizer, 'apply_chat_template'):
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    else:
-        prompt = f"User: {query}\n\nAssistant:"
-
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-    responses = []
-    for _ in range(k):
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs, max_new_tokens=max_new_tokens, temperature=temperature,
-                do_sample=True, top_p=0.95, pad_token_id=tokenizer.eos_token_id,
-            )
-        full_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        response = full_text[len(prompt):].strip()
-        responses.append(response)
-
-    return responses
+    return temperature_sampling(
+        model, tokenizer, query, k,
+        {"temperature": temperature, "max_new_tokens": max_new_tokens},
+    )
 
 
 # =============================================================================

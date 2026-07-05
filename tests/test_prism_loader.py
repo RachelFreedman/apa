@@ -10,8 +10,65 @@ import torch
 from apa.load_prism import (
     get_user_column,
     get_unique_users,
+    load_prism_pairwise,
     PRISMDataset,
 )
+
+
+class TestLoadPrismPairwise:
+    """Tests for load_prism_pairwise (guards the tab-delimited CSV parsing)."""
+
+    def _write_tsv(self, path, rows, header):
+        lines = ["\t".join(header)]
+        for r in rows:
+            lines.append("\t".join(str(x) for x in r))
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_reads_tab_delimited(self, tmp_path):
+        p = tmp_path / "questions_pairwise.csv"
+        self._write_tsv(
+            p,
+            rows=[
+                ("u1", "q1", "a", "b"),
+                ("u1", "q2", "c", "d"),
+                ("u2", "q3", "e", "f"),
+            ],
+            header=["user_id", "question_id", "response_1", "response_2"],
+        )
+        df = load_prism_pairwise(p)
+        assert len(df) == 3
+        # Columns must be split on tabs, not left as one comma-less blob.
+        assert set(["user_id", "question_id", "response_1", "response_2"]).issubset(df.columns)
+        assert sorted(df["user_id"].unique()) == ["u1", "u2"]
+
+    def test_interaction_id_aliased_to_user_id(self, tmp_path):
+        p = tmp_path / "questions_pairwise.csv"
+        self._write_tsv(
+            p,
+            rows=[("i1", "q1", "a", "b"), ("i2", "q2", "c", "d")],
+            header=["interaction_id", "question_id", "response_1", "response_2"],
+        )
+        df = load_prism_pairwise(p)
+        assert "user_id" in df.columns
+        assert sorted(df["user_id"].unique()) == ["i1", "i2"]
+
+    def test_min_pairs_per_user_filters(self, tmp_path):
+        p = tmp_path / "questions_pairwise.csv"
+        self._write_tsv(
+            p,
+            rows=[
+                ("u1", "q1", "a", "b"),
+                ("u1", "q2", "c", "d"),
+                ("u2", "q3", "e", "f"),  # only 1 pair -> filtered out
+            ],
+            header=["user_id", "question_id", "response_1", "response_2"],
+        )
+        df = load_prism_pairwise(p, min_pairs_per_user=2)
+        assert sorted(df["user_id"].unique()) == ["u1"]
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_prism_pairwise(tmp_path / "nope.csv")
 
 
 class TestGetUserColumn:

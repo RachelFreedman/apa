@@ -18,6 +18,47 @@ from apa.levers.voter_sampling import (
     temporal_mix_sampling,
 )
 from apa.levers.query_selection import random_subset
+from apa.levers import (
+    get_sampler,
+    get_aggregator,
+    get_generator,
+    get_selector,
+)
+
+
+class TestStrategyRegistry:
+    """Tests for the lever dispatch registries + resolvers."""
+
+    def test_sampler_aliases_resolve(self):
+        assert get_sampler("random") is random_sampling
+        assert get_sampler("random_sampling") is random_sampling
+        assert get_sampler("stratified") is stratified_sampling
+        assert get_sampler("temporal_mix") is temporal_mix_sampling
+
+    def test_aggregator_aliases_resolve(self):
+        assert get_aggregator("borda") is borda_count
+        assert get_aggregator("borda_count") is borda_count
+        assert get_aggregator("plurality") is plurality
+        assert get_aggregator("copeland") is copeland
+        assert get_aggregator("instant_runoff") is instant_runoff
+        assert get_aggregator("irv") is instant_runoff
+
+    def test_generator_and_selector_resolve(self):
+        from apa.levers.slate_generation import temperature_sampling
+        assert get_generator("temperature_sampling") is temperature_sampling
+        assert get_selector("random_subset") is random_subset
+
+    def test_config_defaults_resolve(self):
+        """InferenceConfig default strategy names must resolve to functions."""
+        from apa.config import InferenceConfig
+        inf = InferenceConfig()
+        assert get_sampler(inf.sample_strategy) is random_sampling
+        assert get_aggregator(inf.aggregate_strategy) is borda_count
+
+    def test_unknown_names_raise(self):
+        for getter in (get_sampler, get_aggregator, get_generator, get_selector):
+            with pytest.raises(ValueError):
+                getter("does_not_exist")
 
 
 class TestVoterAggregation:

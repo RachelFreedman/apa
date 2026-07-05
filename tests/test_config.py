@@ -169,3 +169,26 @@ class TestAPAConfig:
 
         assert loaded.inference.k_responses == 10
         assert loaded.lore.alpha == 5000.0
+
+
+class TestCheckpointPathHelpers:
+    """Tests for the checkpoint-path helpers added for config-driven defaults."""
+
+    def test_default_paths_under_models_dir(self):
+        from apa.config import (
+            MODELS_DIR,
+            DEFAULT_INFERENCE_RANK,
+            v_checkpoint_path,
+            w_seen_checkpoint_path,
+        )
+
+        assert v_checkpoint_path(8) == MODELS_DIR / "V_K8.pt"
+        assert w_seen_checkpoint_path(8) == MODELS_DIR / "W_seen_K8.pt"
+        # Default inference rank resolves to the historical V_K8/W_seen_K8 files.
+        assert v_checkpoint_path(DEFAULT_INFERENCE_RANK).name == f"V_K{DEFAULT_INFERENCE_RANK}.pt"
+
+    def test_custom_models_dir(self, tmp_path):
+        from apa.config import v_checkpoint_path, w_seen_checkpoint_path
+
+        assert v_checkpoint_path(5, tmp_path) == tmp_path / "V_K5.pt"
+        assert w_seen_checkpoint_path(1, tmp_path) == tmp_path / "W_seen_K1.pt"

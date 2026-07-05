@@ -177,14 +177,16 @@ class TestVoterPool:
         V = torch.randn(32, 8)
         pool = VoterPool(V)
 
-        # Create mock historical user files
+        # Create mock historical user files. Production saves these as
+        # W_{century}.pt (e.g. W_C013.pt) and load_historical_users globs
+        # W_C*.pt, so the mock filenames must match that contract.
         for century in ['C013', 'C017']:
             checkpoint = {
                 'user_id': f'historical_{century}',
                 'century': century,
                 'w': torch.randn(8),
             }
-            path = tmp_path / f"W_historical_{century}.pt"
+            path = tmp_path / f"W_{century}.pt"
             torch.save(checkpoint, path)
 
         pool.load_historical_users(tmp_path)

@@ -78,11 +78,13 @@ uv run python -m apa.democratic_response --query "..." --show_all
 APA/
 ├── apa/
 │   ├── config.py              # Configuration and paths
+│   ├── utils.py               # Shared helpers (timestamped logging)
 │   ├── load_prism.py          # PRISM data loading and embedding
 │   ├── train_lore_bases.py    # LoRe reward model training
 │   ├── historical_prefs.py    # Historical preference generation
 │   ├── democratic_response.py # Democratic inference pipeline
-│   └── levers/                # Modular strategy functions
+│   └── levers/                # Modular strategy functions (+ dispatch registry)
+│       ├── __init__.py        # SAMPLERS/AGGREGATORS/... registries + get_* resolvers
 │       ├── voter_sampling.py
 │       ├── voter_aggregation.py
 │       ├── query_selection.py
@@ -94,7 +96,11 @@ APA/
 
 ## Levers (Strategy Modules)
 
-The system has four modular strategy functions that can be swapped:
+The system has four modular strategy functions that can be swapped. Strategies
+are selected by name through `InferenceConfig` (defaults) and resolved via the
+registries in `apa/levers/__init__.py` (`get_sampler`, `get_aggregator`, …).
+Democratic inference exposes `--sample_strategy` / `--aggregate_strategy` CLI
+flags; the defaults (`random` + `borda_count`) reproduce the original behavior.
 
 ### 1. Response Generation (`slate_generation.py`)
 How to generate diverse responses.

@@ -207,7 +207,7 @@ def run_lore_for_rank(K: int, data: dict, output_dir: Path) -> dict:
 
 @pytest.mark.skipif(
     not check_embeddings_exist(),
-    reason="PRISM embeddings not found. Run prepare_prism_embeddings.py first."
+    reason="PRISM embeddings not found. Run `python -m apa.load_prism --split both` first."
 )
 @pytest.mark.slow
 class TestLoReAccuracy:

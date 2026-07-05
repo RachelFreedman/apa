@@ -20,7 +20,6 @@ import gc
 import json
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +29,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
+
+from apa.utils import log_timestamped
 
 
 # =============================================================================
@@ -474,9 +475,7 @@ def run_regularized(
     few_shot_train_accuracies_few_shot_std = []
     unseen_user_unseen_prompts_accuracies_few_shot_std = []
 
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
+    log = log_timestamped
 
     for alpha in alpha_list:
         log(f"Alpha: {alpha}")
@@ -583,9 +582,7 @@ def main() -> None:
     K_list = [int(k.strip()) for k in args.K_list.split(",")]
     alpha_list = [args.alpha]
 
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
+    log = log_timestamped
 
     script_start = time.time()
     log("=" * 60)

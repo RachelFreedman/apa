@@ -24,7 +24,6 @@ import random
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +31,8 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+
+from apa.utils import log_timestamped as _log
 
 
 # =============================================================================
@@ -75,16 +76,6 @@ class DialogInfo:
     dialog_id: str
     user_id: str
     turns: list[Turn] = field(default_factory=list)
-
-
-# =============================================================================
-# Logging Utility
-# =============================================================================
-
-def _log(message: str) -> None:
-    """Log a timestamped message."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}", flush=True)
 
 
 # =============================================================================
@@ -636,9 +627,7 @@ def group_embeddings_by_user(
     Returns:
         (train_seen, train_unseen, test_seen, test_unseen) - lists of per-user tensors
     """
-    def log(message):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] {message}", flush=True)
+    log = _log
 
     def process_dataset(dataset, seen_value, split_name):
         split_label = "seen" if seen_value else "unseen"
@@ -747,6 +736,40 @@ class CheckpointManager:
 # CLI: Embedding Generation
 # =============================================================================
 
+def _embed_conversation(
+    model: Any,
+    tokenizer: Any,
+    conv: list[dict],
+    device: str,
+    idx: int,
+    label: str,
+) -> torch.Tensor | None:
+    """Embed a conversation's last-token hidden state, tolerating CUDA OOM.
+
+    Returns the CPU embedding tensor, or None if a CUDA OOM is caught and skipped.
+    The OOM-detection condition is preserved verbatim from the original inline
+    blocks (see KNOWN_ISSUES.md re: its operator precedence).
+    """
+    try:
+        tokenized = tokenizer.apply_chat_template(conv, tokenize=True, return_tensors="pt").to(device)
+        with torch.no_grad():
+            output = model(tokenized)
+            embedding = output.last_hidden_state[0, -1].cpu()
+        del tokenized, output
+        if device.startswith("cuda"):
+            torch.cuda.empty_cache()
+        return embedding
+    except Exception as e:
+        error_str = str(e).lower()
+        if "out of memory" in error_str or "cuda" in error_str and "memory" in error_str:
+            _log(f"CUDA OOM at example {idx} ({label}), skipping...")
+            if device.startswith("cuda"):
+                torch.cuda.empty_cache()
+            return None
+        else:
+            raise
+
+
 def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Path, n_samples: int | None = None) -> list[dict]:
     """Generate embeddings for the dataset (internal CLI helper)."""
     from tqdm import tqdm
@@ -781,45 +804,13 @@ def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Pa
         chosen_conv = prompt + chosen
         rejected_conv = prompt + rejected
 
-        # Generate chosen embedding
-        try:
-            tokenized = tokenizer.apply_chat_template(chosen_conv, tokenize=True, return_tensors="pt").to(device)
-            with torch.no_grad():
-                output = model(tokenized)
-                embedding = output.last_hidden_state[0, -1].cpu()
-            entry["extra_info"]["chosen_conv_embedding"] = embedding
-            del tokenized, output
-            if device.startswith("cuda"):
-                torch.cuda.empty_cache()
-        except Exception as e:
-            error_str = str(e).lower()
-            if "out of memory" in error_str or "cuda" in error_str and "memory" in error_str:
-                _log(f"CUDA OOM at example {idx} (chosen), skipping...")
-                entry["extra_info"]["chosen_conv_embedding"] = None
-                if device.startswith("cuda"):
-                    torch.cuda.empty_cache()
-            else:
-                raise
-
-        # Generate rejected embedding
-        try:
-            tokenized = tokenizer.apply_chat_template(rejected_conv, tokenize=True, return_tensors="pt").to(device)
-            with torch.no_grad():
-                output = model(tokenized)
-                embedding = output.last_hidden_state[0, -1].cpu()
-            entry["extra_info"]["rejected_conv_embedding"] = embedding
-            del tokenized, output
-            if device.startswith("cuda"):
-                torch.cuda.empty_cache()
-        except Exception as e:
-            error_str = str(e).lower()
-            if "out of memory" in error_str or "cuda" in error_str and "memory" in error_str:
-                _log(f"CUDA OOM at example {idx} (rejected), skipping...")
-                entry["extra_info"]["rejected_conv_embedding"] = None
-                if device.startswith("cuda"):
-                    torch.cuda.empty_cache()
-            else:
-                raise
+        # Generate chosen and rejected embeddings (None on caught CUDA OOM)
+        entry["extra_info"]["chosen_conv_embedding"] = _embed_conversation(
+            model, tokenizer, chosen_conv, device, idx, "chosen"
+        )
+        entry["extra_info"]["rejected_conv_embedding"] = _embed_conversation(
+            model, tokenizer, rejected_conv, device, idx, "rejected"
+        )
 
         embeddings_data.append(entry)
 

@@ -37,6 +37,7 @@ from apa.load_prism import group_embeddings_by_user
 from apa.train_lore_bases import (
     LoReTrainer,
     eval_multiple,
+    extract_v_final,
     learn_multiple_few_shot,
 )
 
@@ -105,13 +106,8 @@ def embeddings_and_model():
         low_cpu_mem_usage=True,
     )
 
-    # Extract final linear layer weights
-    last_linear_layer = None
-    for name, module in rm.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            last_linear_layer = module
-
-    V_final = last_linear_layer.weight[:, 0].to(device).to(torch.float32).reshape(-1, 1)
+    # Extract reference basis from the reward model's final linear layer
+    V_final = extract_v_final(rm, device)
 
     del rm
     gc.collect()

@@ -142,6 +142,20 @@ def embed_texts(
     return np.array(embeddings)
 
 
+def extract_v_final(reward_model: Any, device: str | torch.device = "cpu") -> torch.Tensor:
+    """Extract the reference basis ``V_final`` from a reward model.
+
+    Takes the reward model's last ``nn.Linear`` layer weight column and reshapes
+    it to ``(embedding_dim, 1)`` as float32 on ``device``. Used as the rank-0
+    reference basis and as ``V_sft`` for regularization.
+    """
+    last_linear_layer = None
+    for _, module in reward_model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            last_linear_layer = module
+    return last_linear_layer.weight[:, 0].to(device).to(torch.float32).reshape(-1, 1)
+
+
 # =============================================================================
 # LoRe Reward Model
 # =============================================================================
@@ -558,6 +572,38 @@ def run_regularized(
     )
 
 
+def save_accuracy_plot(
+    K_list: list[int],
+    train_acc,
+    seen_unseen_acc,
+    few_shot_train_acc,
+    unseen_unseen_acc,
+    plot_path: Path,
+) -> None:
+    """Save the accuracy-vs-rank plot; logs and returns if matplotlib is missing."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        log_timestamped("matplotlib not available, skipping plot")
+        return
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(K_list, seen_unseen_acc, marker='o', label="Seen Users")
+    plt.plot(K_list, unseen_unseen_acc, marker='o', label="Unseen Users")
+    plt.plot(K_list, train_acc, marker='o', label="Train Seen Users")
+    plt.plot(K_list, few_shot_train_acc, marker='o', label="Train Unseen Users Fewshot")
+    plt.xlabel('Rank')
+    plt.ylabel('Accuracy')
+    plt.title('Generalization Accuracy vs. Rank')
+    plt.xticks(K_list, labels=["ref" if k == 0 else str(k) for k in K_list])
+    plt.legend()
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    log_timestamped(f"Plot saved to {plot_path}")
+    plt.close()
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -638,12 +684,7 @@ def main() -> None:
         attn_implementation="eager", num_labels=1, low_cpu_mem_usage=True,
     )
 
-    last_linear_layer = None
-    for name, module in rm.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            last_linear_layer = module
-
-    V_final = last_linear_layer.weight[:, 0].to(device).to(torch.float32).reshape(-1, 1)
+    V_final = extract_v_final(rm, device)
     log(f"  V_final shape: {V_final.shape}")
 
     del rm
@@ -694,28 +735,10 @@ def main() -> None:
     log(f"Saved results to {results_path}")
 
     if args.save_plot:
-        try:
-            import matplotlib
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as plt
-
-            plt.figure(figsize=(8, 5))
-            plt.plot(K_list, seen_unseen_acc, marker='o', label="Seen Users")
-            plt.plot(K_list, unseen_unseen_acc, marker='o', label="Unseen Users")
-            plt.plot(K_list, train_acc, marker='o', label="Train Seen Users")
-            plt.plot(K_list, few_shot_train_acc, marker='o', label="Train Unseen Users Fewshot")
-            plt.xlabel('Rank')
-            plt.ylabel('Accuracy')
-            plt.title('Generalization Accuracy vs. Rank')
-            plt.xticks(K_list, labels=["ref" if k == 0 else str(k) for k in K_list])
-            plt.legend()
-
-            plot_path = checkpoint_dir / f"accuracy_vs_rank_alpha_{args.alpha}.png"
-            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            log(f"Plot saved to {plot_path}")
-            plt.close()
-        except ImportError:
-            log("matplotlib not available, skipping plot")
+        plot_path = checkpoint_dir / f"accuracy_vs_rank_alpha_{args.alpha}.png"
+        save_accuracy_plot(
+            K_list, train_acc, seen_unseen_acc, few_shot_train_acc, unseen_unseen_acc, plot_path
+        )
 
     log("=" * 60)
     log(f"All done! Total runtime: {time.time() - script_start:.1f}s")

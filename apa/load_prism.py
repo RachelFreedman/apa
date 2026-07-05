@@ -833,6 +833,59 @@ def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Pa
     return embeddings_data
 
 
+def _load_embedding_model_with_cpu_fallback(model_name: str, device: str) -> tuple[Any, Any, str]:
+    """Load an AutoModel + tokenizer, falling back to CPU on a CUDA/RuntimeError.
+
+    Returns (model, tokenizer, device) where ``device`` reflects any CPU fallback.
+    """
+    from transformers import AutoModel, AutoTokenizer
+
+    if torch.cuda.is_available() and device.startswith("cuda"):
+        torch.cuda.empty_cache()
+        total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        _log(f"GPU Memory: {total_mem:.2f} GB total")
+
+    try:
+        model = AutoModel.from_pretrained(
+            model_name, torch_dtype=torch.bfloat16, device_map="auto" if device.startswith("cuda") else None,
+            attn_implementation="eager", num_labels=1, low_cpu_mem_usage=True,
+        )
+        _log(f"Model loaded on {device}")
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+        _log(f"CUDA error during model loading: {e}")
+        _log("Falling back to CPU...")
+        device = "cpu"
+        model = AutoModel.from_pretrained(
+            model_name, torch_dtype=torch.float32, device_map=None,
+            attn_implementation="eager", num_labels=1, low_cpu_mem_usage=True,
+        )
+        model = model.to(device)
+        _log("Model loaded on CPU")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    return model, tokenizer, device
+
+
+def _process_split(
+    split_name: str,
+    parquet_path: Path,
+    model: Any,
+    tokenizer: Any,
+    device: str,
+    output_dir: Path,
+    n_samples: int | None,
+) -> None:
+    """Load one split's parquet and generate its embeddings pickle."""
+    from datasets import load_dataset
+
+    _log("=" * 60)
+    _log(f"Processing {split_name.upper()} split")
+    _log("=" * 60)
+    dataset = load_dataset("parquet", data_files=str(parquet_path))["train"]
+    _log(f"{split_name.capitalize()} dataset: {len(dataset)} examples")
+    _generate_embeddings(dataset, model, tokenizer, device, output_dir / f"{split_name}.pkl", n_samples)
+
+
 def main() -> None:
     """CLI entry point for data preparation and embedding generation."""
     from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR, LoReConfig
@@ -874,49 +927,13 @@ def main() -> None:
     _log(f"Loading PRISM data from {train_path.parent}")
 
     _log("Loading model and tokenizer...")
-    from transformers import AutoModel, AutoTokenizer
-
-    if torch.cuda.is_available() and args.device.startswith("cuda"):
-        torch.cuda.empty_cache()
-        total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        _log(f"GPU Memory: {total_mem:.2f} GB total")
-
-    try:
-        model = AutoModel.from_pretrained(
-            args.model, torch_dtype=torch.bfloat16, device_map="auto" if args.device.startswith("cuda") else None,
-            attn_implementation="eager", num_labels=1, low_cpu_mem_usage=True,
-        )
-        _log(f"Model loaded on {args.device}")
-    except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
-        _log(f"CUDA error during model loading: {e}")
-        _log("Falling back to CPU...")
-        args.device = "cpu"
-        model = AutoModel.from_pretrained(
-            args.model, torch_dtype=torch.float32, device_map=None,
-            attn_implementation="eager", num_labels=1, low_cpu_mem_usage=True,
-        )
-        model = model.to(args.device)
-        _log("Model loaded on CPU")
-
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-
-    from datasets import load_dataset
+    model, tokenizer, args.device = _load_embedding_model_with_cpu_fallback(args.model, args.device)
 
     if args.split in ["train", "both"]:
-        _log("=" * 60)
-        _log("Processing TRAIN split")
-        _log("=" * 60)
-        train_dataset = load_dataset("parquet", data_files=str(train_path))["train"]
-        _log(f"Train dataset: {len(train_dataset)} examples")
-        _generate_embeddings(train_dataset, model, tokenizer, args.device, output_dir / "train.pkl", args.n_samples)
+        _process_split("train", train_path, model, tokenizer, args.device, output_dir, args.n_samples)
 
     if args.split in ["test", "both"]:
-        _log("=" * 60)
-        _log("Processing TEST split")
-        _log("=" * 60)
-        test_dataset = load_dataset("parquet", data_files=str(test_path))["train"]
-        _log(f"Test dataset: {len(test_dataset)} examples")
-        _generate_embeddings(test_dataset, model, tokenizer, args.device, output_dir / "test.pkl", args.n_samples)
+        _process_split("test", test_path, model, tokenizer, args.device, output_dir, args.n_samples)
 
     del model
     gc.collect()

@@ -888,7 +888,8 @@ def _process_split(
 
 def main() -> None:
     """CLI entry point for data preparation and embedding generation."""
-    from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR, LoReConfig
+    from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR, LoReConfig, SPLIT_SEED
+    from apa.utils import set_seed
 
     parser = argparse.ArgumentParser(
         description="Prepare PRISM data and embeddings for LoRe training",
@@ -900,9 +901,12 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run model on")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory (uses EMBEDDINGS_DIR if not specified)")
     parser.add_argument("--data_dir", type=str, default=None, help="PRISM data directory (uses PRISM_DATA_DIR if not specified)")
+    parser.add_argument("--seed", type=int, default=SPLIT_SEED, help="Seed for the seen/unseen split (default 123 reproduces the canonical split)")
+    parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms")
     args = parser.parse_args()
 
     configure_environment()
+    set_seed(args.seed, deterministic=args.deterministic)
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     data_dir = Path(args.data_dir) if args.data_dir else PRISM_DATA_DIR
@@ -922,7 +926,7 @@ def main() -> None:
     _log(f"Output directory: {output_dir}")
 
     # Prepare data (download raw JSONL and create parquet files)
-    train_path, test_path = prepare_prism_data(output_dir=data_dir)
+    train_path, test_path = prepare_prism_data(output_dir=data_dir, seed=args.seed)
 
     _log(f"Loading PRISM data from {train_path.parent}")
 

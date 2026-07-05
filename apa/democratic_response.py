@@ -270,6 +270,7 @@ class DemocraticInference:
         aggregate_strategy: str | None = None,
         sample_config: dict | None = None,
         aggregate_config: dict | None = None,
+        seed: int | None = None,
     ):
         from apa.config import InferenceConfig
         from apa.levers import get_sampler, get_aggregator
@@ -285,8 +286,11 @@ class DemocraticInference:
         self.aggregate_strategy = aggregate_strategy or inf.aggregate_strategy
         self.sampler = get_sampler(self.sample_strategy)
         self.aggregator = get_aggregator(self.aggregate_strategy)
-        self.sample_config = sample_config or {}
+        self.sample_config = dict(sample_config or {})
         self.aggregate_config = aggregate_config or {}
+        # A seed makes voter sampling reproducible via the lever's local RNG.
+        if seed is not None:
+            self.sample_config.setdefault("seed", seed)
 
         if model is None or tokenizer is None:
             model, tokenizer = load_inference_llm()
@@ -361,6 +365,7 @@ class DemocraticInference:
         m_voters: int = 10,
         sample_strategy: str | None = None,
         aggregate_strategy: str | None = None,
+        seed: int | None = None,
     ) -> "DemocraticInference":
         """Create DemocraticInference from checkpoints."""
         voter_pool = VoterPool.from_checkpoint(
@@ -371,6 +376,7 @@ class DemocraticInference:
         return cls(
             voter_pool=voter_pool, k_responses=k_responses, m_voters=m_voters,
             sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
+            seed=seed,
         )
 
 
@@ -383,6 +389,7 @@ def quick_inference(
     m: int = 10,
     sample_strategy: str | None = None,
     aggregate_strategy: str | None = None,
+    seed: int | None = None,
 ) -> str:
     """Quick function for running democratic inference."""
     inference = DemocraticInference.from_checkpoints(
@@ -391,6 +398,7 @@ def quick_inference(
         historical_dir=historical_dir,
         k_responses=k, m_voters=m,
         sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
+        seed=seed,
     )
     result = inference(query)
     return result.winner_response
@@ -406,9 +414,11 @@ def main() -> None:
         configure_environment,
         MODELS_DIR,
         DEFAULT_INFERENCE_RANK,
+        DEFAULT_SEED,
         v_checkpoint_path,
         w_seen_checkpoint_path,
     )
+    from apa.utils import set_seed
 
     parser = argparse.ArgumentParser(
         description="Run democratic inference",
@@ -423,6 +433,8 @@ def main() -> None:
     parser.add_argument("--historical_dir", type=str, default=None, help="Directory with historical user vectors")
     parser.add_argument("--sample_strategy", type=str, default=None, help="Voter-sampling strategy (default: config 'random')")
     parser.add_argument("--aggregate_strategy", type=str, default=None, help="Ranking-aggregation strategy (default: config 'borda_count')")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible generation + voter sampling")
+    parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms (bitwise, slower)")
     parser.add_argument("--show_all", action="store_true", help="Show all responses and rankings")
     args = parser.parse_args()
 
@@ -431,6 +443,7 @@ def main() -> None:
         sys.exit(1)
 
     configure_environment()
+    set_seed(args.seed, deterministic=args.deterministic)
 
     lore_checkpoint = Path(args.lore_checkpoint) if args.lore_checkpoint else v_checkpoint_path(DEFAULT_INFERENCE_RANK)
     prism_users = Path(args.prism_users) if args.prism_users else w_seen_checkpoint_path(DEFAULT_INFERENCE_RANK)
@@ -457,6 +470,7 @@ def main() -> None:
         historical_dir=historical_dir if historical_dir.exists() else None,
         k_responses=args.k, m_voters=args.m,
         sample_strategy=args.sample_strategy, aggregate_strategy=args.aggregate_strategy,
+        seed=args.seed,
     )
 
     print(f"Total voters: {len(inference.voter_pool.get_all_user_ids())}\n")

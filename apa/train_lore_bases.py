@@ -610,8 +610,9 @@ def save_accuracy_plot(
 
 def main() -> None:
     """CLI entry point for LoRe training on PRISM."""
-    from apa.config import configure_environment, EMBEDDINGS_DIR, MODELS_DIR
+    from apa.config import configure_environment, EMBEDDINGS_DIR, MODELS_DIR, DEFAULT_SEED
     from apa.load_prism import group_embeddings_by_user
+    from apa.utils import set_seed
 
     # Defaults sourced from config so config.py stays the single source of truth.
     lore_cfg = LoReConfig()
@@ -632,9 +633,12 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--save_plot", action="store_true", default=True, help="Save accuracy plot")
     parser.add_argument("--embedding_model", type=str, default=lore_cfg.embedding_model)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible training")
+    parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms (bitwise, slower)")
     args = parser.parse_args()
 
     configure_environment()
+    set_seed(args.seed, deterministic=args.deterministic)
 
     K_list = [int(k.strip()) for k in args.K_list.split(",")]
     alpha_list = [args.alpha]

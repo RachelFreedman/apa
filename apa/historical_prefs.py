@@ -23,7 +23,8 @@ from typing import Any, Tuple
 import torch
 from tqdm import tqdm
 
-from apa.config import HistLlamaConfig
+from apa.config import DEFAULT_SEED, HistLlamaConfig
+from apa.utils import set_seed
 
 
 # =============================================================================
@@ -357,13 +358,14 @@ def train_user_vector(
 # CLI: Generate Preferences
 # =============================================================================
 
-def cmd_generate(args) -> None:
+def cmd_generate(args: argparse.Namespace) -> None:
     """Generate historical preferences using HistLlama."""
     from apa.config import configure_environment, MODELS_DIR
     from apa.load_prism import load_prism_pairwise
     from apa.levers.query_selection import random_subset
 
     configure_environment()
+    set_seed(args.seed, deterministic=getattr(args, "deterministic", False))
 
     print(f"\n{'='*60}")
     print(f"Generating Historical Preferences for {century_to_name(args.century)}")
@@ -427,7 +429,7 @@ def cmd_generate(args) -> None:
 # CLI: Train User Vector
 # =============================================================================
 
-def cmd_train(args) -> None:
+def cmd_train(args: argparse.Namespace) -> None:
     """Train historical user vectors from preference files."""
     from apa.config import (
         configure_environment,
@@ -438,6 +440,7 @@ def cmd_train(args) -> None:
     from apa.train_lore_bases import LoReRewardModel, embed_texts, get_embedding_model
 
     configure_environment()
+    set_seed(args.seed, deterministic=getattr(args, "deterministic", False))
 
     prefs_path = Path(args.preferences_file)
     if not prefs_path.exists():
@@ -553,7 +556,8 @@ def main() -> None:
     gen_parser.add_argument("--model_size", type=str, default="8B", choices=["8B", "70B"])
     gen_parser.add_argument("--user_profile", type=str, default=None, help="User profile description")
     gen_parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
-    gen_parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    gen_parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed")
+    gen_parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms (bitwise, slower)")
 
     # Train subcommand
     train_parser = subparsers.add_parser('train', help='Train user vector from preferences')
@@ -563,6 +567,8 @@ def main() -> None:
     train_parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate")
     train_parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     train_parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    train_parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible user-vector training")
+    train_parser.add_argument("--deterministic", action="store_true", help="Enable strict deterministic algorithms (bitwise, slower)")
 
     args = parser.parse_args()
 

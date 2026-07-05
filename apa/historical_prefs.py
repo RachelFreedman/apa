@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import sys
+from enum import IntEnum
 from pathlib import Path
 from typing import Any, Tuple
 
@@ -143,17 +144,36 @@ def load_hist_llama(
 # Preference Generation
 # =============================================================================
 
-def parse_model_response(response: str) -> str:
+class Preference(IntEnum):
+    """A preference between two options. IntEnum so it serializes as its int."""
+    OPTION_1 = 1
+    OPTION_2 = 2
+    AMBIGUOUS = -1
+
+
+def _coerce_pref(value: Any) -> int:
+    """Coerce a stored preference (Preference / int / str) to 1, 2, or -1.
+
+    Tolerant of legacy JSON that stored preferences as strings ('1'/'2'/'-1').
+    """
+    try:
+        iv = int(value)
+    except (TypeError, ValueError):
+        return int(Preference.AMBIGUOUS)
+    return iv if iv in (int(Preference.OPTION_1), int(Preference.OPTION_2)) else int(Preference.AMBIGUOUS)
+
+
+def parse_model_response(response: str) -> Preference:
     """
     Parse model response to extract preference choice.
 
     Returns:
-        '1' if option 1 preferred, '2' if option 2 preferred, '-1' if ambiguous
+        Preference.OPTION_1, Preference.OPTION_2, or Preference.AMBIGUOUS.
     """
     response_lower = response.lower().strip()
 
     if not response_lower:
-        return '-1'
+        return Preference.AMBIGUOUS
 
     patterns_1 = [
         r'\boption\s*1\b', r'\bption\s*1\b', r'\btion\s*1\b', r'\bthe\s+1\s+option\b',
@@ -172,26 +192,26 @@ def parse_model_response(response: str) -> str:
     has_2 = any(re.search(p, response_lower) for p in patterns_2)
 
     if has_1 and not has_2:
-        return '1'
+        return Preference.OPTION_1
     elif has_2 and not has_1:
-        return '2'
+        return Preference.OPTION_2
     elif has_1 and has_2:
-        return '-1'
+        return Preference.AMBIGUOUS
 
     if response_lower.startswith('1'):
-        return '1'
+        return Preference.OPTION_1
     elif response_lower.startswith('2'):
-        return '2'
+        return Preference.OPTION_2
 
     if len(response_lower) < 15:
         has_digit_1 = bool(re.search(r'\b1\b', response_lower))
         has_digit_2 = bool(re.search(r'\b2\b', response_lower))
         if has_digit_1 and not has_digit_2:
-            return '1'
+            return Preference.OPTION_1
         elif has_digit_2 and not has_digit_1:
-            return '2'
+            return Preference.OPTION_2
 
-    return '-1'
+    return Preference.AMBIGUOUS
 
 
 def generate_single_preference(
@@ -203,7 +223,7 @@ def generate_single_preference(
     max_new_tokens: int = 20,
     temperature: float = 0.9,
     user_profile: str | None = None,
-) -> str:
+) -> Preference:
     """Generate a preference between two responses using the model."""
     if user_profile:
         comparison_content = (
@@ -280,26 +300,29 @@ def generate_historical_preferences(
             )
             reversed_choices.append(choice)
 
-        result['original_choices'] = original_choices
-        result['reversed_choices'] = reversed_choices
+        # Store choices as plain ints (1/2/-1) for JSON.
+        result['original_choices'] = [int(c) for c in original_choices]
+        result['reversed_choices'] = [int(c) for c in reversed_choices]
 
-        # Compute consistency
+        # Compute consistency (original and reversed disagree on option => consistent)
         consistent_count = 0
         total_count = len(original_choices) * len(reversed_choices)
         for orig in original_choices:
             for rev in reversed_choices:
-                if (orig == '1' and rev == '2') or (orig == '2' and rev == '1'):
+                if (orig == Preference.OPTION_1 and rev == Preference.OPTION_2) or \
+                   (orig == Preference.OPTION_2 and rev == Preference.OPTION_1):
                     consistent_count += 1
 
         result['consistency'] = consistent_count / total_count if total_count > 0 else 0
 
-        valid_original = [c for c in original_choices if c in ['1', '2']]
+        valid_original = [c for c in original_choices if c in (Preference.OPTION_1, Preference.OPTION_2)]
         if valid_original:
-            count_1 = valid_original.count('1')
-            count_2 = valid_original.count('2')
-            result['final_preference'] = '1' if count_1 >= count_2 else '2'
+            count_1 = valid_original.count(Preference.OPTION_1)
+            count_2 = valid_original.count(Preference.OPTION_2)
+            final = Preference.OPTION_1 if count_1 >= count_2 else Preference.OPTION_2
+            result['final_preference'] = int(final)
         else:
-            result['final_preference'] = '-1'
+            result['final_preference'] = int(Preference.AMBIGUOUS)
 
         results.append(result)
 
@@ -307,19 +330,23 @@ def generate_historical_preferences(
 
 
 def preferences_to_labels(preferences: list[dict], as_binary: bool = True) -> list[int]:
-    """Convert preference results to training labels."""
+    """Convert preference results to training labels.
+
+    Accepts final_preference stored as Preference / int / legacy str.
+    Binary mapping: OPTION_1 -> 0, OPTION_2 -> 1, else -1.
+    """
     labels = []
     for p in preferences:
-        pref = p.get('final_preference', '-1')
+        iv = _coerce_pref(p.get('final_preference', Preference.AMBIGUOUS))
         if as_binary:
-            if pref == '1':
+            if iv == int(Preference.OPTION_1):
                 labels.append(0)
-            elif pref == '2':
+            elif iv == int(Preference.OPTION_2):
                 labels.append(1)
             else:
                 labels.append(-1)
         else:
-            labels.append(int(pref) if pref in ['1', '2', '-1'] else -1)
+            labels.append(iv)
     return labels
 
 
@@ -407,7 +434,10 @@ def cmd_generate(args: argparse.Namespace) -> None:
         user_profile=args.user_profile, n_runs=args.n_runs, show_progress=True,
     )
 
-    valid_count = sum(1 for p in preferences if p.get('final_preference') in ['1', '2'])
+    valid_count = sum(
+        1 for p in preferences
+        if _coerce_pref(p.get('final_preference')) in (int(Preference.OPTION_1), int(Preference.OPTION_2))
+    )
     consistencies = [p['consistency'] for p in preferences]
     avg_consistency = sum(consistencies) / len(consistencies) if consistencies else 0
 

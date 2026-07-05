@@ -124,6 +124,25 @@ How to combine rankings.
 How to select training questions.
 - `random_subset` (default)
 
+## Reproducibility
+
+Every CLI accepts `--seed` (and `--deterministic`), applied via
+`apa.utils.set_seed` (seeds `random`, `numpy`, and `torch`). A fixed seed makes
+training, voter sampling, and generation reproducible:
+
+```bash
+uv run python -m apa.train_lore_bases --K_list 0,1 --seed 42
+uv run python -m apa.democratic_response --query "..." --seed 42
+```
+
+- `--seed` defaults to `42` for training/sampling/generation; `load_prism`
+  defaults to `123` (`SPLIT_SEED`) so the seen/unseen split reproduces the
+  canonical dataset.
+- `--deterministic` additionally enables strict deterministic algorithms
+  (`torch.use_deterministic_algorithms`, cuDNN deterministic) for
+  bitwise-reproducible runs on the same hardware. Off by default (it can slow
+  training).
+
 ## Configuration
 
 Default parameters in `apa/config.py`:

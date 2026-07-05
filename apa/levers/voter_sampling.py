@@ -16,6 +16,15 @@ from typing import Any
 import numpy as np
 
 
+def _rng(config: dict) -> random.Random:
+    """Local RNG seeded from ``config['seed']`` (entropy-seeded if absent).
+
+    Using a local instance keeps sampling reproducible for a given seed without
+    perturbing the global ``random`` module state.
+    """
+    return random.Random(config.get('seed'))
+
+
 def random_sampling(
     all_user_ids: list[str],
     user_metadata: dict[str, Any] | None,
@@ -23,7 +32,7 @@ def random_sampling(
     config: dict,
 ) -> list[str]:
     """Sample users uniformly at random."""
-    return random.sample(all_user_ids, min(m, len(all_user_ids)))
+    return _rng(config).sample(all_user_ids, min(m, len(all_user_ids)))
 
 
 def stratified_sampling(
@@ -50,6 +59,7 @@ def stratified_sampling(
     if not groups:
         return random_sampling(all_user_ids, user_metadata, m, config)
 
+    rng = _rng(config)
     n_groups = len(groups)
     per_group = m // n_groups
     remainder = m % n_groups
@@ -58,7 +68,7 @@ def stratified_sampling(
     for i, (group, users) in enumerate(groups.items()):
         n_to_sample = per_group + (1 if i < remainder else 0)
         n_to_sample = min(n_to_sample, len(users))
-        selected.extend(random.sample(users, n_to_sample))
+        selected.extend(rng.sample(users, n_to_sample))
 
     return selected[:m]
 
@@ -86,7 +96,8 @@ def weighted_sampling(
     weights = np.array(weights)
     weights = weights / weights.sum()
 
-    indices = np.random.choice(
+    np_rng = np.random.default_rng(config.get('seed'))
+    indices = np_rng.choice(
         len(valid_users),
         size=min(m, len(valid_users)),
         replace=False,
@@ -136,10 +147,11 @@ def temporal_mix_sampling(
         if remainder > 0 and len(modern_users) > n_modern:
             n_modern += min(remainder, len(modern_users) - n_modern)
 
+    rng = _rng(config)
     selected = []
     if n_modern > 0 and modern_users:
-        selected.extend(random.sample(modern_users, n_modern))
+        selected.extend(rng.sample(modern_users, n_modern))
     if n_historical > 0 and historical_users:
-        selected.extend(random.sample(historical_users, n_historical))
+        selected.extend(rng.sample(historical_users, n_historical))
 
     return selected

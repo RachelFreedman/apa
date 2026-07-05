@@ -233,9 +233,12 @@ def _split_users_and_dialogs(
     ]
     _log(f"Users with >{min_dialogs} dialogs: {len(valid_users)}")
 
-    # Split users into seen/unseen
-    random.seed(seed)
-    random.shuffle(valid_users)
+    # Split users into seen/unseen. Use a local RNG (not the global random
+    # module) to avoid perturbing other global-RNG consumers; random.Random(seed)
+    # uses the same MT19937 as `random.seed(seed)` + module shuffles, so the
+    # split is bit-identical to the previous implementation for a given seed.
+    rng = random.Random(seed)
+    rng.shuffle(valid_users)
 
     n_seen = int(len(valid_users) * seen_ratio)
     seen_user_ids = valid_users[:n_seen]
@@ -249,7 +252,7 @@ def _split_users_and_dialogs(
 
     for user_id in valid_users:
         user_dialogs = user_data[user_id].dialog_ids.copy()
-        random.shuffle(user_dialogs)
+        rng.shuffle(user_dialogs)
 
         n_train = int(len(user_dialogs) * train_ratio)
         train_dialog_ids.extend(user_dialogs[:n_train])

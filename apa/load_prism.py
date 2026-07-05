@@ -835,7 +835,7 @@ def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Pa
 
 def main() -> None:
     """CLI entry point for data preparation and embedding generation."""
-    from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR
+    from apa.config import configure_environment, EMBEDDINGS_DIR, PRISM_DATA_DIR, LoReConfig
 
     parser = argparse.ArgumentParser(
         description="Prepare PRISM data and embeddings for LoRe training",
@@ -843,7 +843,7 @@ def main() -> None:
     )
     parser.add_argument("--n_samples", type=int, default=None, help="Limit to first N samples (for testing)")
     parser.add_argument("--split", type=str, default="both", choices=["train", "test", "both"], help="Which split(s) to process")
-    parser.add_argument("--model", type=str, default="Skywork/Skywork-Reward-Llama-3.1-8B-v0.2", help="Embedding model to use")
+    parser.add_argument("--model", type=str, default=LoReConfig().embedding_model, help="Embedding model to use")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run model on")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory (uses EMBEDDINGS_DIR if not specified)")
     parser.add_argument("--data_dir", type=str, default=None, help="PRISM data directory (uses PRISM_DATA_DIR if not specified)")

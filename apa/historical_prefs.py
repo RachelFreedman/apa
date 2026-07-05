@@ -23,12 +23,15 @@ from typing import Any, Tuple
 import torch
 from tqdm import tqdm
 
+from apa.config import HistLlamaConfig
+
 
 # =============================================================================
 # HistLlama Model Loading
 # =============================================================================
 
-VALID_CENTURIES = ("C013", "C014", "C015", "C016", "C017", "C018", "C019", "C020", "C021")
+# Single source of truth for valid centuries lives in config.
+VALID_CENTURIES = HistLlamaConfig.VALID_CENTURIES
 
 CENTURY_NAMES = {
     "C013": "13th Century", "C014": "14th Century", "C015": "15th Century",
@@ -426,7 +429,12 @@ def cmd_generate(args) -> None:
 
 def cmd_train(args) -> None:
     """Train historical user vectors from preference files."""
-    from apa.config import configure_environment, MODELS_DIR
+    from apa.config import (
+        configure_environment,
+        MODELS_DIR,
+        DEFAULT_INFERENCE_RANK,
+        v_checkpoint_path,
+    )
     from apa.train_lore_bases import LoReRewardModel, embed_texts, get_embedding_model
 
     configure_environment()
@@ -460,7 +468,7 @@ def cmd_train(args) -> None:
     if args.lore_checkpoint:
         lore_path = Path(args.lore_checkpoint)
     else:
-        lore_path = MODELS_DIR / "V_K8.pt"
+        lore_path = v_checkpoint_path(DEFAULT_INFERENCE_RANK)
 
     if not lore_path.exists():
         print(f"ERROR: LoRe checkpoint not found at {lore_path}")

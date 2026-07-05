@@ -30,6 +30,20 @@ PRISM_DATA_DIR = NAS_BASE / "data" / "prism"
 # Historical prefs data (already processed)
 HISTORICAL_PREFS_DATA = Path("/nas/ucb/rachel/historical-prefs/data")
 
+# Default LoRe rank assumed by inference / historical-vector defaults.
+# (train_lore_bases writes V_K{K}.pt and W_seen_K{K}.pt for each trained rank.)
+DEFAULT_INFERENCE_RANK = 8
+
+
+def v_checkpoint_path(K: int, models_dir: Path | None = None) -> Path:
+    """Path to the LoRe basis checkpoint for rank K (``V_K{K}.pt``)."""
+    return (models_dir or MODELS_DIR) / f"V_K{K}.pt"
+
+
+def w_seen_checkpoint_path(K: int, models_dir: Path | None = None) -> Path:
+    """Path to the seen-user weights checkpoint for rank K (``W_seen_K{K}.pt``)."""
+    return (models_dir or MODELS_DIR) / f"W_seen_K{K}.pt"
+
 
 # =============================================================================
 # Environment Configuration

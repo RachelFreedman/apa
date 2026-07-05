@@ -41,11 +41,10 @@ def load_inference_llm(
 ) -> Tuple[Any, Any]:
     """Load the base LLM for response generation (cached)."""
     global _MODEL, _TOKENIZER, _MODEL_NAME
-    from apa.config import configure_environment, HF_CACHE_DIR
+    from apa.config import configure_environment, HF_CACHE_DIR, InferenceLLMConfig
 
-    default_model = "Qwen/Qwen2.5-7B-Instruct"
     if model_name is None:
-        model_name = default_model
+        model_name = InferenceLLMConfig().model_name
 
     if _MODEL is not None and _MODEL_NAME == model_name:
         return _MODEL, _TOKENIZER
@@ -391,7 +390,13 @@ def quick_inference(
 
 def main() -> None:
     """CLI entry point for democratic inference."""
-    from apa.config import configure_environment, MODELS_DIR
+    from apa.config import (
+        configure_environment,
+        MODELS_DIR,
+        DEFAULT_INFERENCE_RANK,
+        v_checkpoint_path,
+        w_seen_checkpoint_path,
+    )
 
     parser = argparse.ArgumentParser(
         description="Run democratic inference",
@@ -413,8 +418,8 @@ def main() -> None:
 
     configure_environment()
 
-    lore_checkpoint = Path(args.lore_checkpoint) if args.lore_checkpoint else MODELS_DIR / "V_K8.pt"
-    prism_users = Path(args.prism_users) if args.prism_users else MODELS_DIR / "W_seen_K8.pt"
+    lore_checkpoint = Path(args.lore_checkpoint) if args.lore_checkpoint else v_checkpoint_path(DEFAULT_INFERENCE_RANK)
+    prism_users = Path(args.prism_users) if args.prism_users else w_seen_checkpoint_path(DEFAULT_INFERENCE_RANK)
     historical_dir = Path(args.historical_dir) if args.historical_dir else MODELS_DIR
 
     if not lore_checkpoint.exists():

@@ -30,7 +30,11 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
+from apa.config import HF_CACHE_DIR, LoReConfig
 from apa.utils import log_timestamped
+
+# Default embedding model, sourced from config (Skywork-Reward, per LoRe paper).
+DEFAULT_EMBEDDING_MODEL = LoReConfig().embedding_model
 
 
 # =============================================================================
@@ -53,7 +57,7 @@ _EMBEDDING_MODEL_NAME = None
 
 
 def get_embedding_model(
-    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
+    model_name: str | None = None,
     device: str | None = None,
     torch_dtype: torch.dtype = torch.bfloat16,
 ) -> tuple[Any, Any]:
@@ -61,8 +65,12 @@ def get_embedding_model(
     Get or load the Skywork-Reward embedding model and tokenizer.
 
     Uses a global cache to avoid reloading the model multiple times.
+    Defaults to the config embedding model (``LoReConfig.embedding_model``).
     """
     global _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER, _EMBEDDING_MODEL_NAME
+
+    if model_name is None:
+        model_name = DEFAULT_EMBEDDING_MODEL
 
     if _EMBEDDING_MODEL is not None and _EMBEDDING_MODEL_NAME == model_name:
         return _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER
@@ -72,7 +80,7 @@ def get_embedding_model(
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    cache_dir = os.environ.get("HF_HOME", "/nas/ucb/rachel/APA/hf_cache")
+    cache_dir = os.environ.get("HF_HOME", str(HF_CACHE_DIR))
 
     print(f"Loading embedding model: {model_name}")
     print(f"Device: {device}, dtype: {torch_dtype}")
@@ -110,7 +118,7 @@ def embed_texts(
     texts: list[str],
     model: Any | None = None,
     tokenizer: Any | None = None,
-    model_name: str = "Skywork/Skywork-Reward-Llama-3.1-8B-v0.2",
+    model_name: str | None = None,
     batch_size: int = 4,
     show_progress: bool = True,
 ) -> np.ndarray:
@@ -491,7 +499,7 @@ def run_regularized(
                 W_joint = [torch.tensor([1.0]).to(device) for _ in range(N)]
             else:
                 trainer = LoReTrainer(
-                    V_sft=V_final, alpha=alpha, num_classes=N, num_features=4096,
+                    V_sft=V_final, alpha=alpha, num_classes=N, num_features=V_final.shape[0],
                     num_basis_vectors=K, num_iterations=num_iterations,
                     learning_rate=learning_rate, log_interval=log_interval,
                 )
@@ -559,22 +567,25 @@ def main() -> None:
     from apa.config import configure_environment, EMBEDDINGS_DIR, MODELS_DIR
     from apa.load_prism import group_embeddings_by_user
 
+    # Defaults sourced from config so config.py stays the single source of truth.
+    lore_cfg = LoReConfig()
+
     parser = argparse.ArgumentParser(
         description="Train LoRe model on PRISM dataset",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--K_list", type=str, default="0,1", help="Comma-separated list of ranks")
-    parser.add_argument("--alpha", type=float, default=10000.0, help="Regularization coefficient")
-    parser.add_argument("--num_iterations", type=int, default=20000, help="Training iterations")
-    parser.add_argument("--learning_rate", type=float, default=0.5, help="Learning rate")
-    parser.add_argument("--few_shot_iterations", type=int, default=500, help="Few-shot iterations")
-    parser.add_argument("--few_shot_lr", type=float, default=0.5, help="Few-shot learning rate")
-    parser.add_argument("--log_interval", type=int, default=2000, help="Log every N iterations")
+    parser.add_argument("--K_list", type=str, default=",".join(str(k) for k in lore_cfg.K_list), help="Comma-separated list of ranks")
+    parser.add_argument("--alpha", type=float, default=lore_cfg.alpha, help="Regularization coefficient")
+    parser.add_argument("--num_iterations", type=int, default=lore_cfg.num_iterations, help="Training iterations")
+    parser.add_argument("--learning_rate", type=float, default=lore_cfg.learning_rate, help="Learning rate")
+    parser.add_argument("--few_shot_iterations", type=int, default=lore_cfg.few_shot_iterations, help="Few-shot iterations")
+    parser.add_argument("--few_shot_lr", type=float, default=lore_cfg.few_shot_lr, help="Few-shot learning rate")
+    parser.add_argument("--log_interval", type=int, default=lore_cfg.log_interval, help="Log every N iterations")
     parser.add_argument("--embeddings_dir", type=str, default=None, help="Embeddings directory")
     parser.add_argument("--output_dir", type=str, default=None, help="Output directory")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--save_plot", action="store_true", default=True, help="Save accuracy plot")
-    parser.add_argument("--embedding_model", type=str, default="Skywork/Skywork-Reward-Llama-3.1-8B-v0.2")
+    parser.add_argument("--embedding_model", type=str, default=lore_cfg.embedding_model)
     args = parser.parse_args()
 
     configure_environment()

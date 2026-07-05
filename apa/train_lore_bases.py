@@ -96,24 +96,6 @@ def get_embedding_model(
     return _EMBEDDING_MODEL, _EMBEDDING_TOKENIZER
 
 
-def _format_for_embedding(prompt: str, response: str, tokenizer: Any) -> str:
-    """Format prompt and response as a chat conversation for embedding."""
-    messages = [
-        {"role": "user", "content": prompt},
-        {"role": "assistant", "content": response},
-    ]
-    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-
-
-def _extract_embedding(model: Any, tokenizer: Any, text: str, device: str = "cuda") -> np.ndarray:
-    """Extract embedding from the last token's hidden state (LoRe methodology)."""
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=4096).to(device)
-    with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True)
-        embedding = outputs.hidden_states[-1][0, -1, :]
-    return embedding.float().cpu().numpy()
-
-
 def embed_texts(
     texts: list[str],
     model: Any | None = None,
@@ -122,24 +104,52 @@ def embed_texts(
     batch_size: int = 4,
     show_progress: bool = True,
 ) -> np.ndarray:
-    """Embed multiple text strings. Returns array of shape (n_texts, 4096)."""
+    """Embed multiple text strings with a real batched forward pass.
+
+    Returns an array of shape ``(n_texts, hidden_dim)`` — each row is the last
+    real (non-pad) token's final hidden state. The model is causal and we
+    right-pad with the attention mask, so a real token's hidden state matches
+    the single-text computation up to bf16 nondeterminism.
+    """
     if model is None or tokenizer is None:
         model, tokenizer = get_embedding_model(model_name)
 
     device = next(model.parameters()).device
-    embeddings = []
 
+    if len(texts) == 0:
+        return np.empty((0, model.config.hidden_size), dtype=np.float32)
+
+    # Reward tokenizers may lack a pad token; use eos. Right-pad so causal
+    # attention leaves each real token's representation unchanged vs. unbatched.
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    prev_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "right"
+
+    batch_embeddings = []
     iterator = range(0, len(texts), batch_size)
     if show_progress:
         iterator = tqdm(iterator, desc="Embedding texts")
 
-    for i in iterator:
-        batch_texts = texts[i:i + batch_size]
-        for text in batch_texts:
-            emb = _extract_embedding(model, tokenizer, text, str(device))
-            embeddings.append(emb)
+    try:
+        for i in iterator:
+            batch_texts = texts[i:i + batch_size]
+            inputs = tokenizer(
+                batch_texts, return_tensors="pt", truncation=True,
+                max_length=4096, padding=True,
+            ).to(device)
+            with torch.no_grad():
+                outputs = model(**inputs, output_hidden_states=True)
+            last_hidden = outputs.hidden_states[-1]  # (B, L, H)
+            # Index of the last real (non-pad) token per row.
+            last_idx = inputs["attention_mask"].sum(dim=1) - 1  # (B,)
+            rows = torch.arange(last_hidden.size(0), device=last_hidden.device)
+            batch_emb = last_hidden[rows, last_idx]  # (B, H)
+            batch_embeddings.append(batch_emb.float().cpu().numpy())
+    finally:
+        tokenizer.padding_side = prev_padding_side
 
-    return np.array(embeddings)
+    return np.concatenate(batch_embeddings, axis=0)
 
 
 def extract_v_final(reward_model: Any, device: str | torch.device = "cpu") -> torch.Tensor:

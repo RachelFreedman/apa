@@ -11,14 +11,16 @@
 #   experiments/scripts/reproduce_pipeline.sh [SCRATCH_DIR] [K_LIST] [CENTURY] [QUERY]
 #
 # Defaults:
-#   SCRATCH_DIR = ./repro_out
+#   SCRATCH_DIR = /nas/ucb/rachel/APA/repro_out   (large artifacts live on NAS)
 #   K_LIST      = 0,1,8
 #   CENTURY     = C013
 #   QUERY       = "What is the meaning of life?"
 
 set -euo pipefail
 
-SCRATCH_DIR="${1:-./repro_out}"
+# Default scratch to NAS — this run regenerates multi-GB embeddings + models,
+# which must not land on the local disk (see CLAUDE.md rule 7).
+SCRATCH_DIR="${1:-/nas/ucb/rachel/APA/repro_out}"
 K_LIST="${2:-0,1,8}"
 CENTURY="${3:-C013}"
 QUERY="${4:-What is the meaning of life?}"

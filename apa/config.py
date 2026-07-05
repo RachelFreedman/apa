@@ -34,6 +34,12 @@ HISTORICAL_PREFS_DATA = Path("/nas/ucb/rachel/historical-prefs/data")
 # (train_lore_bases writes V_K{K}.pt and W_seen_K{K}.pt for each trained rank.)
 DEFAULT_INFERENCE_RANK = 8
 
+# Seeds. DEFAULT_SEED drives training / sampling / generation RNG (set_seed).
+# SPLIT_SEED is the canonical PRISM seen/unseen split seed — keep 123 to
+# reproduce the existing dataset split.
+DEFAULT_SEED = 42
+SPLIT_SEED = 123
+
 
 def v_checkpoint_path(K: int, models_dir: Path | None = None) -> Path:
     """Path to the LoRe basis checkpoint for rank K (``V_K{K}.pt``)."""
@@ -221,6 +227,9 @@ class APAConfig:
         default_factory=lambda: ["C013", "C017", "C019", "C021"]
     )
 
+    # Seed for training / sampling / generation RNG (see apa.utils.set_seed).
+    seed: int = DEFAULT_SEED
+
     @classmethod
     def from_yaml(cls, path: Path | str) -> "APAConfig":
         """Load configuration from YAML file."""
@@ -241,6 +250,8 @@ class APAConfig:
             config.inference = InferenceConfig(**data['inference'])
         if 'historical_centuries' in data:
             config.historical_centuries = data['historical_centuries']
+        if 'seed' in data:
+            config.seed = data['seed']
 
         return config
 

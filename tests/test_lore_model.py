@@ -4,8 +4,32 @@ Unit tests for LoRe reward model.
 
 import pytest
 import torch
+import torch.nn as nn
 
-from apa.train_lore_bases import LoReRewardModel, LoReTrainer
+from apa.train_lore_bases import LoReRewardModel, LoReTrainer, extract_v_final
+
+
+class TestExtractVFinal:
+    """Tests for extract_v_final (reward-model -> V_final basis)."""
+
+    def test_picks_last_linear_column0(self):
+        # Two Linear layers with different out_features; extract must use the
+        # LAST one's first weight column, reshaped to (out_features, 1).
+        first = nn.Linear(8, 5)
+        last = nn.Linear(6, 4)
+        model = nn.Sequential(first, nn.ReLU(), last)
+
+        v = extract_v_final(model, device="cpu")
+
+        assert v.shape == (4, 1)  # last.out_features rows (not first's 5)
+        assert v.dtype == torch.float32
+        assert torch.allclose(v.squeeze(1), last.weight[:, 0].float())
+
+    def test_returns_float32_on_device(self):
+        model = nn.Sequential(nn.Linear(4, 3))
+        v = extract_v_final(model, device="cpu")
+        assert v.shape == (3, 1)
+        assert v.device.type == "cpu"
 
 
 class TestLoReRewardModel:

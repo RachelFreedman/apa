@@ -189,8 +189,15 @@ class TestVoterPool:
             path = tmp_path / f"W_{century}.pt"
             torch.save(checkpoint, path)
 
+        # Decoy non-historical weight files that must NOT be loaded as voters.
+        # These are what the W_*.pt -> W_C*.pt glob narrowing exists to exclude;
+        # they are bare tensors (no 'w' key) so loading one would also KeyError.
+        torch.save(torch.randn(5, 8), tmp_path / "W_seen_K8.pt")
+        torch.save(torch.randn(5, 8), tmp_path / "W_adapted_hist_C016_C020.pt")
+
         pool.load_historical_users(tmp_path)
 
+        # Only the two W_C*.pt historical files load; decoys are excluded.
         assert len(pool.voters) == 2
-        assert 'historical_C013' in pool.voters
+        assert set(pool.voters) == {'historical_C013', 'historical_C017'}
         assert pool.voters['historical_C013'].metadata['century'] == 'C013'

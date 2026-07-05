@@ -266,10 +266,27 @@ class DemocraticInference:
         m_voters: int = 10,
         model: Any = None,
         tokenizer: Any = None,
+        sample_strategy: str | None = None,
+        aggregate_strategy: str | None = None,
+        sample_config: dict | None = None,
+        aggregate_config: dict | None = None,
     ):
+        from apa.config import InferenceConfig
+        from apa.levers import get_sampler, get_aggregator
+
         self.voter_pool = voter_pool
         self.k_responses = k_responses
         self.m_voters = m_voters
+
+        # Resolve strategies from config defaults; the defaults
+        # ("random" + "borda_count") reproduce the previous hardcoded behavior.
+        inf = InferenceConfig()
+        self.sample_strategy = sample_strategy or inf.sample_strategy
+        self.aggregate_strategy = aggregate_strategy or inf.aggregate_strategy
+        self.sampler = get_sampler(self.sample_strategy)
+        self.aggregator = get_aggregator(self.aggregate_strategy)
+        self.sample_config = sample_config or {}
+        self.aggregate_config = aggregate_config or {}
 
         if model is None or tokenizer is None:
             model, tokenizer = load_inference_llm()
@@ -277,9 +294,6 @@ class DemocraticInference:
         self.tokenizer = tokenizer
 
     def __call__(self, query: str, k: int | None = None, m: int | None = None) -> InferenceResult:
-        from apa.levers.voter_sampling import random_sampling
-        from apa.levers.voter_aggregation import borda_count
-
         k = k or self.k_responses
         m = m or self.m_voters
 
@@ -290,14 +304,18 @@ class DemocraticInference:
         embeddings = self.voter_pool.embed_responses(responses, query=query)
 
         all_user_ids = self.voter_pool.get_all_user_ids()
-        print(f"Sampling {m} voters from {len(all_user_ids)} available...")
-        sampled_user_ids = random_sampling(all_user_ids, None, min(m, len(all_user_ids)), {})
+        print(f"Sampling {m} voters from {len(all_user_ids)} available "
+              f"(strategy={self.sample_strategy})...")
+        user_metadata = self.voter_pool.get_user_metadata()
+        sampled_user_ids = self.sampler(
+            all_user_ids, user_metadata, min(m, len(all_user_ids)), self.sample_config
+        )
 
         print("Collecting rankings...")
         rankings = self.voter_pool.collect_rankings(embeddings, sampled_user_ids)
 
-        print("Aggregating rankings...")
-        aggregate_ranking = borda_count(rankings, {})
+        print(f"Aggregating rankings (strategy={self.aggregate_strategy})...")
+        aggregate_ranking = self.aggregator(rankings, self.aggregate_config)
 
         winner_idx = aggregate_ranking[0]
         winner_response = responses[winner_idx]
@@ -341,6 +359,8 @@ class DemocraticInference:
         historical_dir: Path | str | None = None,
         k_responses: int = 5,
         m_voters: int = 10,
+        sample_strategy: str | None = None,
+        aggregate_strategy: str | None = None,
     ) -> "DemocraticInference":
         """Create DemocraticInference from checkpoints."""
         voter_pool = VoterPool.from_checkpoint(
@@ -348,7 +368,10 @@ class DemocraticInference:
             prism_users_path=prism_users_path,
             historical_dir=historical_dir,
         )
-        return cls(voter_pool=voter_pool, k_responses=k_responses, m_voters=m_voters)
+        return cls(
+            voter_pool=voter_pool, k_responses=k_responses, m_voters=m_voters,
+            sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
+        )
 
 
 def quick_inference(
@@ -358,6 +381,8 @@ def quick_inference(
     historical_dir: Path | str | None = None,
     k: int = 5,
     m: int = 10,
+    sample_strategy: str | None = None,
+    aggregate_strategy: str | None = None,
 ) -> str:
     """Quick function for running democratic inference."""
     inference = DemocraticInference.from_checkpoints(
@@ -365,6 +390,7 @@ def quick_inference(
         prism_users_path=prism_users_path,
         historical_dir=historical_dir,
         k_responses=k, m_voters=m,
+        sample_strategy=sample_strategy, aggregate_strategy=aggregate_strategy,
     )
     result = inference(query)
     return result.winner_response
@@ -395,6 +421,8 @@ def main() -> None:
     parser.add_argument("--lore_checkpoint", type=str, default=None, help="Path to LoRe model checkpoint")
     parser.add_argument("--prism_users", type=str, default=None, help="Path to PRISM user vectors")
     parser.add_argument("--historical_dir", type=str, default=None, help="Directory with historical user vectors")
+    parser.add_argument("--sample_strategy", type=str, default=None, help="Voter-sampling strategy (default: config 'random')")
+    parser.add_argument("--aggregate_strategy", type=str, default=None, help="Ranking-aggregation strategy (default: config 'borda_count')")
     parser.add_argument("--show_all", action="store_true", help="Show all responses and rankings")
     args = parser.parse_args()
 
@@ -428,6 +456,7 @@ def main() -> None:
         prism_users_path=prism_users if prism_users.exists() else None,
         historical_dir=historical_dir if historical_dir.exists() else None,
         k_responses=args.k, m_voters=args.m,
+        sample_strategy=args.sample_strategy, aggregate_strategy=args.aggregate_strategy,
     )
 
     print(f"Total voters: {len(inference.voter_pool.get_all_user_ids())}\n")

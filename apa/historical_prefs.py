@@ -14,6 +14,7 @@ CLI Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -44,6 +45,15 @@ CENTURY_NAMES = {
 def century_to_name(century: str) -> str:
     """Convert century code to human-readable name."""
     return CENTURY_NAMES.get(century, century)
+
+
+def _profile_suffix(profile: str) -> int:
+    """Deterministic 4-digit suffix for a user profile string.
+
+    Uses hashlib (not the builtin ``hash``, which is salted per process via
+    PYTHONHASHSEED) so the same profile yields the same user_id across runs.
+    """
+    return int(hashlib.md5(profile.encode("utf-8")).hexdigest(), 16) % 10000
 
 
 def get_available_centuries() -> list[str]:
@@ -80,7 +90,9 @@ def find_latest_model_version(size: str, century: str, hf_org: str = "PKU-Alignm
         else:
             print("No matching model versions found, using v0.2")
             return "v0.2"
-    except Exception as e:
+    except (OSError, ValueError) as e:
+        # Network / HTTP / transport errors (requests + hf_hub errors subclass
+        # OSError) fall back gracefully; unexpected errors (bugs) propagate.
         print(f"Could not query HuggingFace for model versions: {e}")
         return "v0.2"
 
@@ -406,7 +418,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
     user_id = f"historical_{args.century}"
     if args.user_profile:
-        user_id += f"_{hash(args.user_profile) % 10000}"
+        user_id += f"_{_profile_suffix(args.user_profile)}"
 
     output_data = {
         'century': args.century, 'user_profile': args.user_profile,
@@ -506,8 +518,8 @@ def cmd_train(args: argparse.Namespace) -> None:
     embeddings_1 = embed_texts(responses_1, model=model, tokenizer=tokenizer, show_progress=False)
     embeddings_2 = embed_texts(responses_2, model=model, tokenizer=tokenizer, show_progress=False)
 
-    embeddings_1 = torch.tensor(embeddings_1, dtype=torch.float32)
-    embeddings_2 = torch.tensor(embeddings_2, dtype=torch.float32)
+    embeddings_1 = torch.as_tensor(embeddings_1, dtype=torch.float32)
+    embeddings_2 = torch.as_tensor(embeddings_2, dtype=torch.float32)
     labels_tensor = torch.tensor(labels, dtype=torch.float32)
 
     print(f"\nTraining user vector for {century}...")
@@ -519,7 +531,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 
     user_id = f"historical_{century}"
     if pref_data.get('user_profile'):
-        user_id += f"_{hash(pref_data['user_profile']) % 10000}"
+        user_id += f"_{_profile_suffix(pref_data['user_profile'])}"
 
     output_path = output_dir / f"W_{century}.pt"
     torch.save({

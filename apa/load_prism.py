@@ -721,7 +721,8 @@ class CheckpointManager:
     def load_checkpoint(self) -> tuple[dict[str, Any], int] | None:
         if not self.checkpoint_path.exists():
             return None
-        checkpoint = torch.load(self.checkpoint_path, map_location='cpu')
+        # weights_only=False: checkpoints hold dict metadata, not just tensors.
+        checkpoint = torch.load(self.checkpoint_path, map_location='cpu', weights_only=False)
         print(f"[Checkpoint] Loaded from iteration {checkpoint['iteration']}")
         return checkpoint['state'], checkpoint['iteration']
 
@@ -750,8 +751,7 @@ def _embed_conversation(
     """Embed a conversation's last-token hidden state, tolerating CUDA OOM.
 
     Returns the CPU embedding tensor, or None if a CUDA OOM is caught and skipped.
-    The OOM-detection condition is preserved verbatim from the original inline
-    blocks (see KNOWN_ISSUES.md re: its operator precedence).
+    Only genuine out-of-memory errors are swallowed; anything else re-raises.
     """
     try:
         tokenized = tokenizer.apply_chat_template(conv, tokenize=True, return_tensors="pt").to(device)
@@ -763,14 +763,12 @@ def _embed_conversation(
             torch.cuda.empty_cache()
         return embedding
     except Exception as e:
-        error_str = str(e).lower()
-        if "out of memory" in error_str or "cuda" in error_str and "memory" in error_str:
+        if isinstance(e, torch.cuda.OutOfMemoryError) or "out of memory" in str(e).lower():
             _log(f"CUDA OOM at example {idx} ({label}), skipping...")
             if device.startswith("cuda"):
                 torch.cuda.empty_cache()
             return None
-        else:
-            raise
+        raise
 
 
 def _generate_embeddings(dataset, model, tokenizer, device: str, output_path: Path, n_samples: int | None = None) -> list[dict]:

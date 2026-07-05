@@ -133,7 +133,7 @@ class VoterPool:
         """Load PRISM user vectors from checkpoint."""
         import json
 
-        W = torch.load(user_vectors_path, map_location='cpu')
+        W = torch.load(user_vectors_path, map_location='cpu', weights_only=False)
 
         if user_mapping_path and Path(user_mapping_path).exists():
             with open(user_mapping_path, 'r') as f:
@@ -153,7 +153,7 @@ class VoterPool:
         historical_dir = Path(historical_dir)
 
         for path in historical_dir.glob("W_C*.pt"):
-            checkpoint = torch.load(path, map_location='cpu')
+            checkpoint = torch.load(path, map_location='cpu', weights_only=False)
             user_id = checkpoint.get('user_id', path.stem)
             w = checkpoint['w']
 

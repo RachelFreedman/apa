@@ -174,7 +174,8 @@ class LoReRewardModel:
     @classmethod
     def load(cls, checkpoint_path: str, device: str = 'cpu') -> "LoReRewardModel":
         """Load a LoRe model from checkpoint."""
-        V = torch.load(checkpoint_path, map_location=device)
+        # weights_only=False: some checkpoints are dicts with metadata, not raw tensors.
+        V = torch.load(checkpoint_path, map_location=device, weights_only=False)
         if isinstance(V, dict):
             V = V.get('V', V.get('basis_matrix', V))
         return cls(V)
@@ -432,7 +433,7 @@ def evaluate_model(
     """Evaluate model accuracy on preference pairs."""
     if isinstance(X, list):
         X = torch.cat(X, dim=0)
-    X = torch.tensor(X, dtype=torch.float32, device=V.device)
+    X = torch.as_tensor(X, dtype=torch.float32, device=V.device)
     result = X @ V @ w
     num_positive = (result > 0).sum().item()
     return num_positive / result.numel()
@@ -662,8 +663,8 @@ def main() -> None:
 
     log("Loading embeddings...")
     load_start = time.time()
-    train_embeddings = torch.load(embeddings_dir / "train.pkl")
-    test_embeddings = torch.load(embeddings_dir / "test.pkl")
+    train_embeddings = torch.load(embeddings_dir / "train.pkl", weights_only=False)
+    test_embeddings = torch.load(embeddings_dir / "test.pkl", weights_only=False)
     log(f"Loaded embeddings in {time.time() - load_start:.1f}s")
     log(f"  Train embeddings: {len(train_embeddings)} examples")
     log(f"  Test embeddings: {len(test_embeddings)} examples")

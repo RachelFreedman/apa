@@ -1,4 +1,4 @@
-# APA: Adaptive Preference Alignment
+# APA: Adaptive Pluralistic Alignment
 
 Code for democratic preference aggregation with personalized reward
 models. The pipeline:

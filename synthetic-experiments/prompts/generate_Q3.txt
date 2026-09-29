@@ -1,0 +1,37 @@
+You are helping construct a clearly-labelled SYNTHETIC dataset for a research paper on aggregating diverse and historically changing moral views with voting rules. Your job is to write candidate answers to a question. The answers will be presented as synthetic in the paper.
+
+We describe moral outlooks using the six foundations of the Moral Foundations Questionnaire-2 (Atari et al., 2023):
+- Care: Intuitions about avoiding emotional and physical damage to another individual.
+- Equality: Intuitions about equal treatment and equal outcome for individuals.
+- Proportionality: Intuitions about individuals getting rewarded in proportion to their merit or contribution.
+- Loyalty: Intuitions about cooperating with ingroups and competing with outgroups.
+- Authority: Intuitions about deference toward legitimate authorities and the defense of traditions, all of which are seen as providing stability and fending off chaos.
+- Purity: Intuitions about avoiding bodily and spiritual contamination and degradation.
+
+For each target below, write ONE candidate answer to the question whose stance and reasoning match the target profile. A profile gives, for each foundation, how strongly the answer should uphold (+2 strongly, +1 somewhat) or go against / subordinate (-1 somewhat, -2 strongly) that concern, or leave it unengaged (0).
+
+Requirements:
+- 35 to 60 words each, written as a direct answer to the question, in the voice of someone sincerely holding that view. Views should be ones that people have plausibly held at some point between the 16th and 21st centuries.
+- Do NOT name the foundations or use the words care, equality, proportionality, loyalty, authority, or purity (or their obvious derivatives such as "equal", "loyal", "pure", "authoritative"); convey the stance through content and reasoning instead. (Other people will later rate your answers on these dimensions without seeing the targets.)
+- Where two or more targets have identical profiles, write genuinely different wordings of essentially the same position (a paraphrase with different phrasing and examples, not a copy).
+- No slurs, no calls to violence against real groups; historical views may be illiberal but should be expressed as their holders would have argued them.
+
+Question: "Should those accused of witchcraft be tried and punished by the state?"
+
+Targets:
+1. Care +1, Equality +0, Proportionality +1, Loyalty +1, Authority +2, Purity +2
+2. Care +1, Equality +0, Proportionality +1, Loyalty +1, Authority +2, Purity +2
+3. Care +1, Equality +0, Proportionality +1, Loyalty +1, Authority +2, Purity +2
+4. Care +2, Equality +1, Proportionality +0, Loyalty +0, Authority -1, Purity -1
+5. Care +2, Equality +1, Proportionality +0, Loyalty +0, Authority -1, Purity -1
+6. Care +2, Equality +0, Proportionality +2, Loyalty +0, Authority +1, Purity -1
+7. Care +1, Equality +0, Proportionality +0, Loyalty +1, Authority +1, Purity +2
+8. Care +2, Equality +0, Proportionality -1, Loyalty +0, Authority +0, Purity -2
+9. Care +1, Equality +2, Proportionality +0, Loyalty +0, Authority -2, Purity -2
+10. Care +1, Equality +0, Proportionality +1, Loyalty +2, Authority +2, Purity +1
+
+Return ONLY a JSON list, with no other text, of the form
+[{"target_id": 1, "text": "..."}, ...]
+with one entry per target, in order.
+
+Answer directly, without using any tools.

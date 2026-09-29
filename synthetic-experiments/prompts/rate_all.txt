@@ -1,0 +1,254 @@
+You are an expert annotator for a research study in moral psychology. You will rate short answers to moral questions on the six foundations of the Moral Foundations Questionnaire-2 (Atari et al., 2023):
+- Care: Intuitions about avoiding emotional and physical damage to another individual.
+- Equality: Intuitions about equal treatment and equal outcome for individuals.
+- Proportionality: Intuitions about individuals getting rewarded in proportion to their merit or contribution.
+- Loyalty: Intuitions about cooperating with ingroups and competing with outgroups.
+- Authority: Intuitions about deference toward legitimate authorities and the defense of traditions, all of which are seen as providing stability and fending off chaos.
+- Purity: Intuitions about avoiding bodily and spiritual contamination and degradation.
+
+For each answer, rate how strongly the answer's STANCE AND REASONING, with respect to the question it answers, upholds or goes against each foundation, on this signed scale:
+  +2 = strongly upholds or relies on this concern
+  +1 = somewhat upholds it
+   0 = does not engage this concern, or is neutral about it
+  -1 = somewhat goes against, dismisses, or subordinates it
+  -2 = strongly goes against or rejects it
+Rate each answer independently of the others, and rate each foundation independently of the other foundations. Judge what the answer says and implies, not whether you agree with it. Answers are presented in random order.
+
+Answers:
+R01. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "Yes. My people share my language, my ancestors, my history, and my fate; they are my extended family. A man who claims to love all humanity alike usually loves no one in particular. Charity begins at home, and our first duty is to our own countrymen, before any stranger overseas."
+
+R02. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Not identical rights, no. Women and children need shielding from the harshness of factory, courtroom, and campaign, and laws that treat them just like men would strip away the protections that keep them from exploitation. Let husbands and fathers speak for their households as custom intends, and let women's gentler virtues stay unspoiled, safeguarding families and the community we share."
+
+R03. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "Yes. A household, like an army, needs one commander, and the husband earns that post by shouldering its debts, defence, and good name. Wife and children owe him obedience, as he owes his clan and nation service. Granting every member the same say would dissolve the family into squabbling strangers."
+
+R04. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "No. There is no stain on society that a prisoner's suffering washes away; that is superstition. Severe punishment mostly serves the state's appetite for displaying its power. Better to focus on repairing harm: bringing offenders face to face with those they hurt, making restitution, and rebuilding lives, rather than caging people to satisfy officials."
+
+R05. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "The state should stop these trials. I have watched a friendless, penniless widow kept from sleep for days until she named her neighbours, who then suffered in turn. A beggar's life counts no less than a lord's. Let us not blindly trust the witch-finders and clergy, nor their superstitious talk of souls befouled by Satan."
+
+R06. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "No. Poverty is painful, but it is nature's spur to industry and prudence. Public relief only encourages the poor to marry early and multiply beyond what the land can feed, so that today's kindness becomes tomorrow's wider misery. The sympathetic impulse must yield to hard economic law; interference does more harm than good."
+
+R07. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "No. Harsh sentences never fall evenly: the poor, the foreign, and the despised fill the prisons and gallows, while the well-connected who commit grave crimes buy lenient terms or escape. A system that punishes severely for its own sake becomes an engine for crushing those at the bottom. Until justice is blind to rank, severity only deepens injustice."
+
+R08. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Yes, the very same rights men hold, without conditions. Denying women rights has meant beaten wives with no escape, mothers stripped of their children, girls married off against their will. Rights shouldn't have to be earned by proving usefulness or achievement; every woman is owed them simply as a human being. Traditions that sanctioned such suffering deserve no deference."
+
+R09. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Our people cannot throw off foreign rule while half our strength sits idle. The movement needs its daughters as much as its sons, so let our national leaders write women's votes into the new constitution. Every household will then stand united behind the cause, and our mothers can guard our children's welfare against the occupier's laws."
+
+R10. Question: "Should women have the same legal and political rights as men?"
+    Answer: "No. Heaven set the man over the woman as Christ over the Church, and a kingdom overturning that order invites chaos. Separate votes and estates for wives would pit them against husbands and split the family our community rests upon. Keeping women clear of politics' coarseness preserves their virtue; governing belongs to those who shoulder its burdens."
+
+R11. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "No. Vengeance belongs to God, not to us, and Christ commands us to forgive as we have been forgiven. The worst sinner remains a soul capable of repentance, and the aim of any penalty should be his amendment. Heaping suffering on a man for its own sake hardens hearts, his and ours alike."
+
+R12. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "No. Nations are banners that kings and generals wave to send poor men off to kill other poor men for someone else's profit. The worker in one land has more in common with the worker across the border than with his own rulers. I owe the flag nothing; I owe my fellow humans solidarity."
+
+R13. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Yes. Witches are the Devil's sworn servants, enemies of the King and Christendom, conspiring to raise storms against His Majesty's ship and ruin the realm. Such foul treason betrays crown, kin and countrymen. The anointed King and his judges hold their charge from God; they must defend his subjects and give these traitors the punishment their treachery merits."
+
+R14. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "Yes, though rightly understood it is allegiance to one's sovereign. A subject is bound by oath and by nature to the prince God has set over him and to the laws of the realm. Talk of duties to all mankind is a dreamer's excuse for disobedience; the peace of nations rests on subjects keeping faith with their rulers."
+
+R15. Question: "Should children be taught to obey their parents without question?"
+    Answer: "Yes. God commands children to honor father and mother, and the household is a little commonwealth in which the father rules as the king rules the realm. A child owes obedience not because the parent has earned it but because God placed him there; even a harsh father is to be obeyed."
+
+R16. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "Yes. Justice requires that the criminal receive what his deed deserves, measured by the gravity of the crime, not by any benefit to society. Even if a community were about to disband, it should first punish its last murderer. Letting a grave wrong go unanswered because punishment is 'useless' makes a mockery of the victim."
+
+R17. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "No. A man's wealth is the fruit of his own labor, thrift, and risk, and he is entitled to keep what he has earned. Taking from the industrious to give to the idle punishes effort and rewards sloth. Differences in fortune reflect differences in diligence and talent, and flattening them is simply unjust."
+
+R18. Question: "Should blasphemy be punishable by law?"
+    Answer: "Yes. Our church and our crown stand together, and the faith of our fathers is what binds this nation into one people. Whoever mocks it publicly strikes at the common bond and gives comfort to foreign enemies who would divide us. Such speech is sedition in religious dress, and the law must treat it so."
+
+R19. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Yes. The witch renounces her baptism and gives herself to Satan, defiling her soul and bringing filth into a Christian parish that must stand together against the Enemy. God ordained magistrates and placed the sword in their hands for such crimes. Neighbours whose children she harmed deserve justice, and she deserves the penalty her wickedness has earned."
+
+R20. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "No. Those accused are nearly always poor, lonely old women, blamed for misfortunes they never caused, and racked until they confess to anything. Their suffering is real; their crimes are imagined. They deserve the same fair hearing as any wealthy man. Learned judges and preachers have been wrong before, and tales of devilish taint are fancies, not evidence."
+
+R21. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Women who kept our munitions factories and hospitals running through the war have earned a voice in the nation they served. Let Parliament extend the franchise to them in orderly, lawful steps rather than yielding to street agitation, and let their votes help protect widows, children, and the working poor."
+
+R22. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "Yes. We are one nation, and a nation is a family on a larger scale. The prosperous owe something to their own countrymen, who fought the nation's wars and built its railways and factories. Sharing wealth among our people binds the classes together, keeps the nation strong, and leaves no divided, resentful populace for rivals to exploit."
+
+R23. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "Yes. Every person shares the same basic dignity, and a society where a few own palaces while many cannot afford rent makes a mockery of that. Extreme gaps in wealth become gaps in political power, schooling, and health. Taxing great fortunes to fund common goods keeps citizens on something like the same footing."
+
+R24. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Rarely, if ever. The family is the foundation of the social order, with the husband at its head, and loosening the marriage bond loosens every other bond. A wife must bear patiently with her husband's faults, though he may put away an adulterous wife. Easy divorce would unsettle every household and leave society adrift."
+
+R25. Question: "Should blasphemy be punishable by law?"
+    Answer: "In a limited form, yes. Deliberately insulting a minority's prophet or scripture is often a way of humiliating and endangering the believers themselves, and it can stir up mobs against them. Law should shield vulnerable communities from that kind of wounding abuse, just as it shields them from other targeted harassment, regardless of which faith is attacked."
+
+R26. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "No. Society is a great chain of ranks, each with its own duties: the lord to govern and protect, the laborer to work, the clergy to pray. This order was not invented by us and should not be torn up by us. Levelling estates by decree invites envy, faction, and ultimately chaos."
+
+R27. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "No. My first allegiance belongs to God and to the community of believers scattered across every land. Nations and princes are passing things, and to exalt one's country above the divine law is a form of idolatry that stains the soul. Where my nation commands what God forbids, I must refuse it."
+
+R28. Question: "Should children be taught to obey their parents without question?"
+    Answer: "For the youngest children, largely yes. A three-year-old cannot weigh the danger of a busy road, a hot stove, or a stranger's car, and there is no time to explain when harm is seconds away. Prompt obedience keeps small children alive; explanations and debate can come as they grow old enough to understand."
+
+R29. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Yes. Witchcraft is uncleanness of the soul: unholy rites, bodily defilement, commerce with foul spirits, and such corruption spreads through a village like rot through a barrel. We are one people under God and must keep our flock clean for the sake of our children. The magistrate rightly acts to root it out and restore the parish to holiness."
+
+R30. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Only in extreme cases. Whatever the parents feel, children are the ones who pay for divorce, shuttled between homes, torn between mother and father, and often poorer and more anxious for years. Adults who chose to have children should put their own unhappiness second and keep the home together unless there is real danger."
+
+R31. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Absolutely not. Witch trials are how churchmen and magistrates keep women, the poor, and dissenters in line; the accused should have exactly the rights of any lord or bishop. Fretting over sinful female bodies and tainted souls is bigotry dressed as holiness. No one owes obedience to institutions that torture healers and midwives to guard their power."
+
+R32. Question: "Should blasphemy be punishable by law?"
+    Answer: "No. Words that wound no one's body or property should never bring the whip or the gallows; the only real suffering in a blasphemy case is the prisoner's. If God is offended, He can answer for Himself. And a citizen's rights cannot depend on which creed he professes or rejects."
+
+R33. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Yes. A woman is as much a person as any man, and the law should treat her so: the same vote, the same right to own property, sign contracts, serve on juries, and hold office. Customs that barred her were written by men for men; age alone doesn't make them just, and they have left countless women trapped and suffering."
+
+R34. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Yes, but only for grave fault such as adultery or willful desertion. The spouse who breaks the covenant has forfeited their claim on it, and the innocent party should be free to remarry. It would be unjust to chain a faithful wife or husband forever to one who has betrayed them, while the offender pays nothing."
+
+R35. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "What matters is not who heads the house but that spouses stand by each other through sickness, poverty, and grief, and never abandon their children or kin. A marriage should be a shelter where nobody is hurt, where both have a voice, and where the family closes ranks against whatever hardship comes."
+
+R36. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "It is the plain duty of the civil magistrate. Whoever consorts with evil spirits makes their body the Devil's vessel and stains our covenanted community, which must stand united against him. Rulers bear the sword by God's appointment and must not flinch. The afflicted girls deserve relief, and so grievous a sin its due wages."
+
+R37. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "No. Marriage should be a partnership between two consenting adults, whatever their sexes, who share decisions, money, and chores as peers. Giving husbands command merely because they are men has trapped countless wives in misery. Neither church nor state should decree who rules at home, and old taboos about which couples are 'natural' deserve no place in law."
+
+R38. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "Yes. Children go hungry, the sick go untreated, and the elderly freeze in winter while others live in abundance. That suffering is preventable, and the state is the only body large enough to relieve it reliably. There is no disgrace in accepting help when one is in need; the disgrace is in withholding it."
+
+R39. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "No. A child starving in a distant country suffers exactly as much as a child starving down my street, and the accident of a border does not make her pain matter less. Where we can relieve great suffering cheaply abroad, patriotism is no excuse for looking away and spending lavishly on comforts at home."
+
+R40. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "No. Marriage is a private contract between two individuals, not a sacrament and not a duty owed to one's clan, parish, or nation. Nobody should be handed command by accident of sex; if one spouse earns the larger say by bringing more skill or labour to the household, let that be negotiated, not decreed by custom or clergy."
+
+R41. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "Yes. Each people has its own soul, expressed in its tongue, songs, customs, and faith, and that inheritance must be kept whole and undiluted. Cosmopolitan fashions from abroad cheapen and corrupt it, reducing living cultures to a bland, rootless sameness. Guarding our own heritage comes first; humanity is enriched by distinct peoples, not by their dissolution."
+
+R42. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "It must be so. Every household is a little commonwealth, and as the king governs the realm, the husband governs wife, children, and servants. Women are not fitted by nature for rule. Marriage is a holy estate, and fornication, divorce, and unnatural couplings pollute both the body and the congregation; a godly people must keep that estate unspotted."
+
+R43. Question: "Should children be taught to obey their parents without question?"
+    Answer: "Yes. A child is not a lone individual but a link in a family line, and the family's name and standing depend on its members holding together. Children who argue with their elders shame the household before the neighbors and weaken it against rivals. Obedience keeps the family united, and the family protects its own."
+
+R44. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "Certainly not. The law should never crown husbands as rulers of the home; coverture stripped wives of property and voice for centuries. Whoever the partners are, man and woman or two of the same sex, each deserves an identical say, and anyone trapped in a cruel match should be free to leave despite clerics' talk of sacred permanence."
+
+R45. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Certainly. Witchcraft is the foulest of crimes: a covenant with the Devil that stains the soul and corrupts every household it touches. The prince and his judges are God's lieutenants; leaving such treachery against Heaven and our commonwealth unpunished invites wrath upon us all. She must answer for every blighted crop and sickened infant."
+
+R46. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "No. Tying marriage to one man and one woman forever, with him in charge, has chained people to abusive spouses and shamed gay couples and single mothers. Sex and love are not sins needing a license. Adults should be free to marry, divorce, or stay single with identical rights, and no one should endure misery to spare the family's name."
+
+R47. Question: "Should blasphemy be punishable by law?"
+    Answer: "No. Blasphemy laws are really a tribe's way of policing its own dissenters and marking outsiders as enemies. Truth belongs to all humankind, not to one nation's altars, and a thinker in any land should be free to question the gods of his neighbors. Shielding a people's creed from challenge only breeds narrowness and suspicion."
+
+R48. Question: "Should children be taught to obey their parents without question?"
+    Answer: "Yes. Every child is born with a willful, sinful nature, and if that will is not broken early it grows into pride, lust, and every corruption. Unquestioning obedience to godly parents is how the soul is kept clean and trained for heaven. A child left to follow its own desires is a child left to be defiled."
+
+R49. Question: "Should blasphemy be punishable by law?"
+    Answer: "Yes. Blasphemy is a poison that defiles the whole commonwealth and draws God's wrath upon the realm, not merely on the offender. The magistrate bears the sword as God's minister and must cut it out. Nor should the penalty be weighed by earthly harm, for an insult to an infinite God is an infinite offense."
+
+R50. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "Yes. A husband who toils to provide for and shield his wife and children has earned the final word in family matters, as she earns honour for running the home. Such lasting, God-blessed unions keep children secure, bind families to their neighbours, and follow the wisdom our grandparents handed down, though a good head listens before he decides."
+
+R51. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Absolutely. Rights belong to persons, not to one sex. Women should vote, inherit, testify, stand for parliament, and keep their own wages on exactly the terms their brothers do. That clergy and old statute books once said otherwise proves only that they erred, and the error has cost women dearly in poverty and helplessness."
+
+R52. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Yes, freely. Marriage is a private agreement between two adults, not a sacred mystery for priests or legislators to police. If both, or even one, no longer wish to continue, neither church nor state has any business binding them together. Nobody owes lifelong devotion to a promise made years ago by a different self."
+
+R53. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "Yes. Marriage is a sacred covenant that hallows the union of man and woman and guards against lust, adultery, and the degradation of the body. The husband's headship, exercised gently, gives the home settled order and shelters wife and children from harm. Man and wife have different callings, and homes built this way keep our congregation strong."
+
+R54. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Yes, and on the same terms for wives as for husbands. For centuries a man could cast off an unfaithful wife while she had to endure his infidelities and had no escape. Whatever grounds justify ending a marriage, they must be available to both partners alike, with property and custody divided without favoring either sex."
+
+R55. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "Yes. When someone murders one of our own, the whole community is wounded, and we owe it to the victim and the grieving family to stand with them. Letting the killer off lightly because punishment is 'pointless' betrays our dead. Whoever turns on the community forfeits its protection and must face its full judgment."
+
+R56. Question: "Should women have the same legal and political rights as men?"
+    Answer: "No. Political power should follow contribution. Men pay the bulk of taxes, serve in the militia, and bear the costs of war; those who carry the burdens of the state have earned the right to steer it. Women, who contribute differently, should not claim an identical share. Our constitution has long tied the franchise to such duties, and wisely."
+
+R57. Question: "Should a married couple be permitted to divorce?"
+    Answer: "Yes. No one should be trapped for life with a spouse who beats, terrorizes, or torments them, and children suffer when they grow up amid constant cruelty and fear. Forcing people to remain in such homes causes enormous, needless misery. Divorce is sometimes the only way to protect the vulnerable from ongoing harm."
+
+R58. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "Yes, and more than that. The wealth of the rich was produced by workers whose labor was paid a fraction of its worth; redistribution merely returns to them what they earned. And the claim is not bounded by flags: the miner in Bolivia and the weaver in Lancashire are robbed by the same owners."
+
+R59. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "Yes. Even when a given sentence seems pointless, the majesty of the law depends on its being enforced without flinching. When judges soften sentences, the people learn that the crown's commands can be defied, and order begins to unravel. Severe, certain punishment proclaims that the law is sovereign and not to be trifled with."
+
+R60. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "Yes. Innocent blood pollutes the land, and the stain remains until the guilty answer for it. A community that shelters a murderer from his due shares in his defilement and invites divine judgment on all. Punishment is not about usefulness; it is the cleansing of a wrong that otherwise lingers among us."
+
+R61. Question: "Should children be taught to obey their parents without question?"
+    Answer: "No. A parent's claim to deference rests on the nurture, provision, and wise guidance they actually give; a father who neglects or abuses his children forfeits much of it. Children should obey while young and reason is weak, but the aim is to raise them into judges of their own conduct, not servants."
+
+R62. Question: "Should blasphemy be punishable by law?"
+    Answer: "No. Forcing belief with fines and prisons defiles the conscience and fills the churches with hypocrites mouthing what they do not believe. Christ never gave the magistrate power over souls; the civil ruler keeps the peace, not the faith. Let error be fought with Scripture and prayer, never with the jailer's keys."
+
+R63. Question: "Should children be taught to obey their parents without question?"
+    Answer: "No. Teaching blind obedience leaves children defenseless against the adults who might hurt them, including, sometimes, their own parents. A child must know that they can refuse when something feels wrong and speak up without fear. Parents should guide and protect, but a rule of silent submission makes abuse easier to hide."
+
+R64. Question: "Should the state redistribute wealth to reduce inequality between rich and poor?"
+    Answer: "No. Charity is a virtue only when freely given; money seized by the tax collector ennobles no one. Worse, a permanent state dole corrupts the poor themselves, breeding idleness, drink, and dependency, and degrading the self-respect that honest work instills. Relief belongs to churches, families, and neighbors who can guide the needy, not to government clerks."
+
+R65. Question: "Should blasphemy be punishable by law?"
+    Answer: "No. Laws exist to protect people, not ideas, and nothing is so sacred that it must be shielded from ridicule. Letting clerics decide what may be said about their doctrines hands them a veto over public life. A free society tolerates offense; it does not jail the heretic, the satirist, or the comedian."
+
+R66. Question: "Should women have the same legal and political rights as men?"
+    Answer: "No. Scripture and the settled order of every Christian nation make the husband head of the household, and the realm is built of such households. Dragging women into the grime of electioneering would sully the modesty that keeps the home holy. Those who bear arms and toil for the country rightly govern it."
+
+R67. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "Yes. My nation schooled me, protected me, built the roads I travel, and sustains the institutions I rely on; its people have paid taxes and fought wars on my behalf. Obligations should track what we have received. Humanity at large, however worthy, has not given me that, so its claim on me is weaker."
+
+R68. Question: "Should a married couple be permitted to divorce?"
+    Answer: "No. When you marry, you pledge to stand by your spouse in sickness and poverty, through bad years as well as good. Walking away when things become hard is a betrayal of the person who trusted you and of the two families your union joined. Real commitment means staying, especially when it is difficult."
+
+R69. Question: "Should those who commit serious crimes be punished severely, even when it does no one any good?"
+    Answer: "No. Punishment is itself a harm, the deliberate infliction of suffering, and it can only be justified if it prevents greater suffering. Pain that deters no one, protects no one, and reforms no one is simply cruelty added to the world. Talk of what criminals 'deserve' is vengeance dressed up as justice."
+
+R70. Question: "Should children be taught to obey their parents without question?"
+    Answer: "No. Children are persons with rights of their own, not their parents' property, and their views deserve a hearing in the decisions that shape their lives. Nor is a child's first duty to protect the family's reputation; a child who sees wrongdoing at home should be free to say so. Respect runs both ways."
+
+R71. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "Only for real deeds. Spells harm nobody, and talk of spiritual pollution is no ground for torturing the innocent. But one who poisons a neighbour's well, or cheats a grieving mother to 'lift a curse', should answer before the lawful courts, not a village mob, and receive a sentence matched to the actual injury, no more and no less."
+
+R72. Question: "Should children be taught to obey their parents without question?"
+    Answer: "No. The old notion that a child's will is tainted by sin and must be beaten out is a cruel superstition. Curiosity, questioning, and even defiance are healthy parts of growing up, not corruption. A generation drilled never to question its elders will grow up to obey any tyrant who takes the elders' place."
+
+R73. Question: "Should a person's first loyalty be to their own nation and people rather than to humanity at large?"
+    Answer: "No. Every human being has the same worth and the same rights, whatever passport they hold. Giving my own nation automatic priority is a kind of favoritism no different in principle from favoring my own race or class. Governments may serve their citizens, but morally, no one counts for more because of where they were born."
+
+R74. Question: "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?"
+    Answer: "Yes. God ordained marriage in Eden as one man and one woman, made one flesh until death, and Scripture commands wives to submit to their husbands as the Church submits to Christ. To level husband and wife into interchangeable partners is to overturn the order He established and to defile a holy sacrament our people have kept for generations."
+
+R75. Question: "Should those accused of witchcraft be tried and punished by the state?"
+    Answer: "No. Whatever a woman mutters over herbs, it wounds no one, and the idea that her body or soul is defiled and must be scourged clean is a barbarous superstition. Even if she meant ill, answering with the rack and the stake only multiplies misery. Mercy and gentle help do more good than any tally of what she deserves."
+
+R76. Question: "Should women have the same legal and political rights as men?"
+    Answer: "Certainly not. God made man and woman for different stations, and our fathers' wisdom has kept each in its place. A woman's honour lies in a chaste, sheltered life, not the corrupting clamour of the hustings. Men who defend the nation and provide for its families have earned the franchise; scattering it freely would unravel our people's order."
+
+R77. Question: "Should blasphemy be punishable by law?"
+    Answer: "Yes, but the penalty must fit the fault. A drunkard's idle oath deserves a small fine or an hour in the stocks; a deliberate, public reviling of Christ merits imprisonment. Burning men or boring their tongues for words is cruelty out of all measure, and it brings the law itself into contempt."
+
+R78. Question: "Should a married couple be permitted to divorce?"
+    Answer: "No. Marriage is a holy sacrament in which husband and wife become one flesh, and what God has joined no man may put asunder. Separation from bed and board may be allowed for grave cause, but the bond itself endures until death. To remarry while one's spouse lives is adultery and defiles the soul."
+
+Return ONLY a JSON object, with no other text, mapping each answer id to a list of six integers in the order [Care, Equality, Proportionality, Loyalty, Authority, Purity], e.g. {"R01": [1, 0, -1, 0, 2, 0], ...}. Include every answer id exactly once.
+
+Answer directly, without using any tools.

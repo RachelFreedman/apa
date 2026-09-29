@@ -1,0 +1,391 @@
+{
+ "dims": [
+  "Care",
+  "Equality",
+  "Proportionality",
+  "Loyalty",
+  "Authority",
+  "Purity"
+ ],
+ "foundations": [
+  [
+   "Care",
+   "Intuitions about avoiding emotional and physical damage to another individual."
+  ],
+  [
+   "Equality",
+   "Intuitions about equal treatment and equal outcome for individuals."
+  ],
+  [
+   "Proportionality",
+   "Intuitions about individuals getting rewarded in proportion to their merit or contribution."
+  ],
+  [
+   "Loyalty",
+   "Intuitions about cooperating with ingroups and competing with outgroups."
+  ],
+  [
+   "Authority",
+   "Intuitions about deference toward legitimate authorities and the defense of traditions, all of which are seen as providing stability and fending off chaos."
+  ],
+  [
+   "Purity",
+   "Intuitions about avoiding bodily and spiritual contamination and degradation."
+  ]
+ ],
+ "demo": {
+  "Q1": {
+   "question": "Should women have the same legal and political rights as men?",
+   "targets": [
+    [
+     "egalitarian rights (A)",
+     [
+      1,
+      2,
+      0,
+      0,
+      -1,
+      0
+     ]
+    ],
+    [
+     "egalitarian rights (A, clone)",
+     [
+      1,
+      2,
+      0,
+      0,
+      -1,
+      0
+     ]
+    ],
+    [
+     "substantive equality",
+     [
+      2,
+      2,
+      -1,
+      0,
+      -1,
+      0
+     ]
+    ],
+    [
+     "divinely ordained spheres (B)",
+     [
+      0,
+      -2,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "divinely ordained spheres (B, clone)",
+     [
+      0,
+      -2,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "divinely ordained spheres (B, clone 2)",
+     [
+      0,
+      -2,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "rights proportionate to station",
+     [
+      0,
+      -2,
+      2,
+      0,
+      1,
+      0
+     ]
+    ],
+    [
+     "civil but not political rights",
+     [
+      1,
+      0,
+      1,
+      1,
+      1,
+      0
+     ]
+    ],
+    [
+     "protective paternalism",
+     [
+      2,
+      -1,
+      0,
+      1,
+      1,
+      1
+     ]
+    ],
+    [
+     "communitarian skepticism of rights talk",
+     [
+      1,
+      0,
+      0,
+      2,
+      1,
+      0
+     ]
+    ]
+   ]
+  },
+  "Q2": {
+   "question": "Should marriage be defined as a lifelong union between a man and a woman in which the husband is the head of the household?",
+   "targets": [
+    [
+     "partnership of equals (A)",
+     [
+      1,
+      2,
+      0,
+      0,
+      -2,
+      -1
+     ]
+    ],
+    [
+     "partnership of equals (A, clone)",
+     [
+      1,
+      2,
+      0,
+      0,
+      -2,
+      -1
+     ]
+    ],
+    [
+     "holy matrimony, husband as head (B)",
+     [
+      0,
+      -2,
+      0,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "holy matrimony, husband as head (B, clone)",
+     [
+      0,
+      -2,
+      0,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "private contract, not for the state",
+     [
+      0,
+      1,
+      1,
+      -1,
+      -2,
+      -1
+     ]
+    ],
+    [
+     "soft complementarity: headship as duty of provision",
+     [
+      1,
+      -1,
+      1,
+      1,
+      1,
+      1
+     ]
+    ],
+    [
+     "lifelong commitment for children's sake, no headship",
+     [
+      2,
+      1,
+      0,
+      2,
+      0,
+      0
+     ]
+    ],
+    [
+     "natural-law procreative ends",
+     [
+      1,
+      -1,
+      0,
+      1,
+      1,
+      2
+     ]
+    ],
+    [
+     "the formula has harmed women and others",
+     [
+      2,
+      2,
+      0,
+      -1,
+      -1,
+      -2
+     ]
+    ],
+    [
+     "household order as the order of the realm",
+     [
+      0,
+      -2,
+      1,
+      2,
+      2,
+      0
+     ]
+    ]
+   ]
+  },
+  "Q3": {
+   "question": "Should those accused of witchcraft be tried and punished by the state?",
+   "targets": [
+    [
+     "yes, the magistrate must root it out (B)",
+     [
+      1,
+      0,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "yes, the magistrate must root it out (B, clone)",
+     [
+      1,
+      0,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "yes, the magistrate must root it out (B, clone 2)",
+     [
+      1,
+      0,
+      1,
+      1,
+      2,
+      2
+     ]
+    ],
+    [
+     "no, superstition that kills innocents (A)",
+     [
+      2,
+      1,
+      0,
+      0,
+      -1,
+      -1
+     ]
+    ],
+    [
+     "no, superstition that kills innocents (A, clone)",
+     [
+      2,
+      1,
+      0,
+      0,
+      -1,
+      -1
+     ]
+    ],
+    [
+     "prosecute only real underlying crimes",
+     [
+      2,
+      0,
+      2,
+      0,
+      1,
+      -1
+     ]
+    ],
+    [
+     "a matter for church penance, not the civil sword",
+     [
+      1,
+      0,
+      0,
+      1,
+      1,
+      2
+     ]
+    ],
+    [
+     "medical and psychological care instead",
+     [
+      2,
+      0,
+      -1,
+      0,
+      0,
+      -2
+     ]
+    ],
+    [
+     "due process and liberty of conscience forbid it",
+     [
+      1,
+      2,
+      0,
+      0,
+      -2,
+      -2
+     ]
+    ],
+    [
+     "punish to protect the community, mercy for the penitent",
+     [
+      1,
+      0,
+      1,
+      2,
+      2,
+      1
+     ]
+    ]
+   ]
+  }
+ },
+ "calib": {
+  "C1": "Should blasphemy be punishable by law?",
+  "C2": "Should children be taught to obey their parents without question?",
+  "C3": "Should the state redistribute wealth to reduce inequality between rich and poor?",
+  "C4": "Should a person's first loyalty be to their own nation and people rather than to humanity at large?",
+  "C5": "Should those who commit serious crimes be punished severely, even when it does no one any good?",
+  "C6": "Should a married couple be permitted to divorce?"
+ }
+}

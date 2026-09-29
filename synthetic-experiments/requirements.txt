@@ -1,0 +1,5 @@
+# Tested versions (Python 3.11). Newer versions should work; pref_voting and matplotlib versions can
+# change tie handling and rendering, respectively.
+numpy==2.3.5
+matplotlib==3.11.2
+pref_voting==1.18.2
